@@ -1366,8 +1366,8 @@ export class PlayScene extends Phaser.Scene {
   private tryEmp(): void {
     if (this.phase !== 'playing' || this.empCd > 0 || this.weapon !== 'emp') return
     const y = this.turretY - this.unit * 16
-    const radius = empReach(this.viewH, this.unit, WEAPONS.emp.radius)
-    const life = this.reduce ? 0.12 : 0.45
+    const radius = empReach(this.turretX, y, this.viewW, this.viewH, this.unit, WEAPONS.emp.radius)
+    const life = this.reduce ? 0.12 : 0.85
     this.empPulses.push({
       id: this.empSerial++,
       x: this.turretX,
@@ -1393,19 +1393,24 @@ export class PlayScene extends Phaser.Scene {
       pulse.life -= dt
       const grown = 1 - Math.max(0, pulse.life) / pulse.maxLife
       pulse.r = Math.max(prev, pulse.max * Math.min(1, grown))
+      const finishing = pulse.life <= 0
+      if (finishing) pulse.r = pulse.max
       for (let n = 0; n < this.enemies.length; n++) {
         const enemy = this.enemies[n]
-        if (
-          !ringReaches(prev, pulse.r, pulse.x, pulse.y, enemy, pulse.id)
-        ) {
-          continue
-        }
+        const crossed = ringReaches(prev, pulse.r, pulse.x, pulse.y, enemy, pulse.id)
+        const inside =
+          finishing &&
+          enemy.active &&
+          !enemy.attract &&
+          enemy.empMark !== pulse.id &&
+          Math.hypot(enemy.x - pulse.x, enemy.y - pulse.y) <= pulse.max + enemy.r
+        if (!crossed && !inside) continue
         enemy.empMark = pulse.id
         enemy.stun = Math.max(enemy.stun, WEAPONS.emp.stun)
         enemy.flash = 0.28
         this.damageEnemy(enemy, WEAPONS.emp.damage)
       }
-      if (pulse.life > 0) this.empPulses[write++] = pulse
+      if (!finishing) this.empPulses[write++] = pulse
     }
     this.empPulses.length = write
   }

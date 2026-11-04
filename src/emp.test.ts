@@ -24,7 +24,7 @@ test('ring ignores attract drones and drones already tagged', () => {
   )
 })
 
-test('portrait reach is tall enough to leave the turret', () => {
-  const reach = empReach(915, 412 / 480, 230)
-  assert.ok(reach > 700)
+test('reach covers a wide screen from the turret', () => {
+  const reach = empReach(640, 755, 1280, 800, 800 / 480, 230)
+  assert.ok(reach >= Math.hypot(640, 755))
 })

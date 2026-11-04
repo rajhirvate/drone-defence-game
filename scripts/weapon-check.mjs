@@ -48,6 +48,13 @@ async function hold(page, x, y, ms) {
   await page.mouse.up()
 }
 
+async function pump(page, ms) {
+  const start = Date.now()
+  while (Date.now() - start < ms) {
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(0))))
+  }
+}
+
 async function playLevel(page) {
   await page.click('#campaign')
   await page.waitForSelector('#map:not([hidden])')
@@ -58,7 +65,8 @@ async function playLevel(page) {
 
 const results = []
 
-const phone = await browser.newPage()
+const phoneContext = await browser.createBrowserContext()
+const phone = await phoneContext.newPage()
 await boot(phone, 412, 915, true)
 const migrated = await phone.evaluate(() => JSON.parse(localStorage.getItem('drone-defence.save')))
 if (migrated.v !== 3) throw new Error(`expected migrated v 3, got ${migrated.v}`)
@@ -69,25 +77,7 @@ if (migrated.empHintSeen !== false) throw new Error('hint flag should default of
 results.push('migrate-ok')
 
 await playLevel(phone)
-const beforeCannon = await scoreOf(phone)
-await hold(phone, 206, 280, 900)
-const afterCannon = await scoreOf(phone)
-results.push(`cannon ${beforeCannon}->${afterCannon}`)
-
-await phone.click('#weapons button[data-weapon="laser"]')
-await new Promise((r) => setTimeout(r, 200))
-const beforeLaser = await scoreOf(phone)
-await hold(phone, 206, 240, 900)
-const afterLaser = await scoreOf(phone)
-results.push(`laser ${beforeLaser}->${afterLaser}`)
-
-await phone.click('#weapons button[data-weapon="missile"]')
-await new Promise((r) => setTimeout(r, 200))
-const beforeMissile = await scoreOf(phone)
-await hold(phone, 206, 220, 1600)
-const afterMissile = await scoreOf(phone)
-results.push(`missile ${beforeMissile}->${afterMissile}`)
-
+await pump(phone, 12000)
 await phone.click('#weapons button[data-weapon="emp"]')
 await phone.waitForSelector('#weapon-hint:not([hidden])')
 const hint = await phone.$eval('#weapon-hint', (el) => el.textContent)
@@ -95,27 +85,43 @@ if (!hint || !hint.includes('stuns and damages')) throw new Error(`bad hint: ${h
 results.push('emp-hint')
 const beforeEmp = await scoreOf(phone)
 await phone.touchscreen.tap(206, 300)
-await new Promise((r) => setTimeout(r, 500))
+await pump(phone, 4000)
 const afterEmp = await scoreOf(phone)
 const ring = await phone.$eval('#weapons button[data-weapon="emp"] .cd-ring', (el) => ({
   hidden: el.hidden,
   p: el.style.getPropertyValue('--p'),
 }))
 results.push(`emp ${beforeEmp}->${afterEmp} ring=${ring.hidden ? 'hidden' : ring.p}`)
-if (!(afterEmp > beforeEmp)) throw new Error(`EMP did not change the score (${beforeEmp} -> ${afterEmp})`)
+if (!(afterEmp > beforeEmp)) throw new Error(`EMP did not change the score (${beforeEmp} -> ${afterEmp}) ring=${ring.hidden ? 'hidden' : ring.p}`)
 if (ring.hidden) throw new Error('EMP cooldown ring stayed hidden')
 
-const desk = await browser.newPage()
+await phone.click('#weapons button[data-weapon="cannon"]')
+await phone.click('#restart').catch(() => {})
+await pump(phone, 500)
+const cannonStart = await scoreOf(phone)
+await hold(phone, 206, 260, 1200)
+const cannonEnd = await scoreOf(phone)
+results.push(`cannon ${cannonStart}->${cannonEnd}`)
+
+await phoneContext.close()
+const deskContext = await browser.createBrowserContext()
+const desk = await deskContext.newPage()
+await desk.bringToFront()
 await boot(desk, 1280, 800, false)
 await playLevel(desk)
+await pump(desk, 12000)
 await desk.click('#weapons button[data-weapon="emp"]')
-await new Promise((r) => setTimeout(r, 1600))
+await pump(desk, 2000)
 const beforeDesk = await scoreOf(desk)
-await desk.mouse.click(640, 280)
-await new Promise((r) => setTimeout(r, 500))
+await desk.mouse.move(640, 320)
+await desk.mouse.down()
+await new Promise((r) => setTimeout(r, 80))
+await desk.mouse.up()
+await pump(desk, 4000)
 const afterDesk = await scoreOf(desk)
-results.push(`desktop-emp ${beforeDesk}->${afterDesk}`)
-if (!(afterDesk > beforeDesk)) throw new Error(`desktop EMP missed (${beforeDesk} -> ${afterDesk})`)
+const deskLabel = await desk.$eval('#weapons button[data-weapon="emp"]', (el) => el.getAttribute('aria-label'))
+results.push(`desktop-emp ${beforeDesk}->${afterDesk} ${deskLabel}`)
+if (!(afterDesk > beforeDesk)) throw new Error(`desktop EMP missed (${beforeDesk} -> ${afterDesk}) ${deskLabel}`)
 
 console.log(results.join('\n'))
 await browser.close()

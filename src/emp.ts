@@ -24,9 +24,18 @@ export function ringReaches(
 }
 
 /**
- * Pulse reach in pixels. Config radius is scaled by the playfield unit, but portrait
- * phones are much taller than they are wide, so the ring also grows with screen height.
+ * Pulse reach in pixels. The old radius was `configRadius * unit`, and `unit` follows
+ * the short side, so on a tall phone the ring died around the turret. The pulse now
+ * covers the whole screen from the muzzle, including the far corners.
  */
-export function empReach(viewH: number, unit: number, configRadius: number): number {
-  return Math.max(viewH * 0.82, configRadius * unit)
+export function empReach(
+  originX: number,
+  originY: number,
+  viewW: number,
+  viewH: number,
+  unit: number,
+  configRadius: number,
+): number {
+  const span = Math.hypot(Math.max(originX, viewW - originX), Math.max(originY, viewH - originY))
+  return Math.max(span, originY + unit * 48, configRadius * unit)
 }
