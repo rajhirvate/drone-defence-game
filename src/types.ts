@@ -1,8 +1,10 @@
-import type { UpgradeId } from './config'
+import type { UpgradeId, WeaponId } from './config'
 
-export type Phase = 'menu' | 'playing' | 'upgrade' | 'gameover'
+export type Phase = 'menu' | 'map' | 'armoury' | 'playing' | 'upgrade' | 'clear' | 'gameover'
 
-export type EnemyKind = 'drone' | 'missile' | 'swarm' | 'shard'
+export type GameMode = 'endless' | 'campaign' | 'daily'
+
+export type EnemyKind = 'drone' | 'missile' | 'swarm' | 'shard' | 'carrier' | 'armour'
 
 export type MoveMode = 'weave' | 'line' | 'arc' | 'shard' | 'flyby'
 
@@ -42,6 +44,7 @@ export interface Enemy {
   scriptKill: boolean
   killX: number
   seed: number
+  stun: number
 }
 
 export interface Bullet {
@@ -57,6 +60,8 @@ export interface Bullet {
   splash: number
   r: number
   flak: boolean
+  homing: boolean
+  turn: number
 }
 
 export interface Particle {
@@ -128,6 +133,21 @@ export interface Snapshot {
   nextDamage: number
   splash: number
   nextSplash: number
+  mode: GameMode
+  coins: number
+  weapon: WeaponId
+  ownedLaser: boolean
+  ownedMissile: boolean
+  ownedEmp: boolean
+  empCd: number
+  empMax: number
+  tutorial: string
+  levelName: string
+  clearStars: number
+  clearCoins: number
+  flash: number
+  dailyDate: string
+  dailyBest: number
 }
 
 export type Command =
@@ -136,6 +156,18 @@ export type Command =
   | { type: 'upgrade'; id: UpgradeId }
   | { type: 'toggle-mute' }
   | { type: 'toggle-autofire' }
+  | { type: 'toggle-haptics' }
+  | { type: 'open-map' }
+  | { type: 'open-armoury' }
+  | { type: 'back-menu' }
+  | { type: 'start-endless' }
+  | { type: 'start-daily' }
+  | { type: 'start-level'; id: number }
+  | { type: 'equip'; id: WeaponId }
+  | { type: 'buy-weapon'; id: Exclude<WeaponId, 'cannon'> }
+  | { type: 'buy-rank'; id: UpgradeId }
+  | { type: 'skip-tutorial' }
+  | { type: 'to-map' }
 
 export function blankSnapshot(): Snapshot {
   return {
@@ -167,5 +199,20 @@ export function blankSnapshot(): Snapshot {
     nextDamage: 2,
     splash: 0,
     nextSplash: 20,
+    mode: 'endless',
+    coins: 0,
+    weapon: 'cannon',
+    ownedLaser: false,
+    ownedMissile: false,
+    ownedEmp: false,
+    empCd: 0,
+    empMax: 7.2,
+    tutorial: '',
+    levelName: '',
+    clearStars: 0,
+    clearCoins: 0,
+    flash: 0,
+    dailyDate: '',
+    dailyBest: 0,
   }
 }

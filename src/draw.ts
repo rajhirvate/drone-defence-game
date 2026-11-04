@@ -47,6 +47,11 @@ export interface ActionFrame {
   reticleY: number
   showReticle: boolean
   phase: string
+  laserOn: boolean
+  laserX: number
+  laserY: number
+  muzzleX: number
+  muzzleY: number
 }
 
 export function paintBackdrop(g: Phaser.GameObjects.Graphics, f: BackdropFrame): void {
@@ -180,6 +185,18 @@ export function paintAction(g: Phaser.GameObjects.Graphics, f: ActionFrame): voi
   }
 
   drawTurret(g, f)
+  if (f.laserOn) {
+    g.lineStyle(Math.max(3, f.unit * 4), 0xff4d6a, 0.35)
+    g.beginPath()
+    g.moveTo(f.muzzleX, f.muzzleY)
+    g.lineTo(f.laserX, f.laserY)
+    g.strokePath()
+    g.lineStyle(Math.max(1.5, f.unit * 1.6), 0xffd0d8, 0.95)
+    g.beginPath()
+    g.moveTo(f.muzzleX, f.muzzleY)
+    g.lineTo(f.laserX, f.laserY)
+    g.strokePath()
+  }
 
   if (f.showReticle && f.phase === 'playing') {
     const x = f.reticleX
@@ -218,12 +235,19 @@ function drawFire(g: Phaser.GameObjects.Graphics, fire: Fire, f: ActionFrame): v
 
 function drawEnemy(g: Phaser.GameObjects.Graphics, e: Enemy, time: number, unit: number): void {
   const flash = e.flash > 0
-  if (e.kind === 'missile') drawMissile(g, e, time, flash)
+  if (e.kind === 'carrier') drawCarrier(g, e, time, flash, unit)
+  else if (e.kind === 'armour') drawArmour(g, e, time, flash)
+  else if (e.kind === 'missile') drawMissile(g, e, time, flash)
   else if (e.kind === 'swarm') drawSwarm(g, e, time, flash, unit)
   else if (e.kind === 'shard') drawShard(g, e, flash)
   else drawDrone(g, e, flash, unit)
+  if (e.stun > 0) {
+    g.lineStyle(Math.max(1, unit), 0x9af6ff, 0.8)
+    g.strokeCircle(e.x, e.y, e.r + unit * 3)
+  }
 
-  if (!e.attract && e.kind !== 'missile' && e.kind !== 'shard' && e.hp < e.maxHp) {
+  const boss = e.kind === 'carrier' || e.kind === 'armour'
+  if (!e.attract && e.kind !== 'shard' && (boss || e.hp < e.maxHp)) {
     const w = e.r * 1.7
     const h = Math.max(2, unit * 2)
     const y = e.y - e.r - h - 3
@@ -295,6 +319,32 @@ function drawSwarm(
     const s = Math.max(2, unit * 2)
     g.fillRect(e.x + Math.cos(a) * e.r * 0.62 - s / 2, e.y + Math.sin(a) * e.r * 0.62 - s / 2, s, s)
   }
+}
+
+function drawCarrier(
+  g: Phaser.GameObjects.Graphics,
+  e: Enemy,
+  time: number,
+  flash: boolean,
+  unit: number,
+): void {
+  g.fillStyle(flash ? 0xffffff : 0x8ea4ff, 1)
+  hex(g, e.x, e.y, e.r)
+  g.fillStyle(flash ? 0xfff4ea : 0x24345c, 1)
+  hex(g, e.x, e.y, e.r * 0.55)
+  g.fillStyle(0xffb15a, 1)
+  const pod = Math.max(4, unit * 4)
+  g.fillRect(e.x - e.r - pod * 0.2, e.y - pod / 2, pod, pod)
+  g.fillRect(e.x + e.r - pod * 0.8, e.y - pod / 2, pod, pod)
+  const blink = Math.sin(time * 8) > 0
+  g.fillStyle(blink ? 0xff445f : 0x9af6ff, 1)
+  g.fillRect(e.x - 2, e.y - 2, 4, 4)
+}
+
+function drawArmour(g: Phaser.GameObjects.Graphics, e: Enemy, time: number, flash: boolean): void {
+  drawMissile(g, e, time, flash)
+  g.fillStyle(flash ? 0xffffff : 0x6a7384, 0.95)
+  nose(g, e.x, e.y, e.angle, e.r * 1.3, e.r * 1.15)
 }
 
 function drawShard(g: Phaser.GameObjects.Graphics, e: Enemy, flash: boolean): void {

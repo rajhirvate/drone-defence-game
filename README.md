@@ -29,13 +29,21 @@ Asset URLs are relative (`base: './'`), so the same `dist/` folder works on a ho
 
 - **Aim:** move the mouse, or drag on a touch screen. The turret only fires into the sky.
 - **Fire:** hold the pointer or the space bar. **Auto-fire** (button or `F`) keeps shooting while you steer. Phones start with auto-fire on; desktops start with hold-to-fire. The choice is saved.
-- **Threats:** drones weave, missiles fly straight or on an arc (a red chevron warns you), and swarms split into shards when they break.
-- **City:** the integrity bar is the skyline. Leaks damage it. A few hits are survivable; a missile hurts more than a drone.
-- **Combo:** quick consecutive kills raise a multiplier, up to x8. A hit on the city breaks the chain.
-- **Waves:** count, speed, and mix ramp up. After each clear you pick one upgrade — Rapid Cycle (fire rate), Flak Burst (extra shells and splash), or Heavy Rounds (damage). Upgrades stack for the rest of the run. A clean wave (no city damage) pays a bonus, and crews patch a little integrity.
-- **Mute:** the button or `M`. Saved in `localStorage`.
-- **Best score:** stored locally and shown on the title screen and the game over screen.
-- **Share:** on game over, the Web Share API sends your score and `window.location.origin`. If sharing is unavailable, the score line is copied to the clipboard.
+- **Weapons:** `1` cannon, `2` laser, `3` homing missiles, `4` EMP. Laser, missiles, and EMP unlock by clearing campaign levels or by spending coins in the armoury.
+- **Campaign:** 12 hand-tuned levels on the map. Clear with city health left for up to 3 stars. Levels 5 and 10 are bosses. Coins from kills buy weapon unlocks and permanent cannon ranks.
+- **Endless:** the original survival mode. Between waves, pick Rapid Cycle, Flak Burst, or Heavy Rounds. Those picks last for the run and stack on top of armoury ranks.
+- **Daily challenge:** one seeded run per local calendar day, so everyone faces the same waves that day. Game over builds a PNG share card (score, wave, date, name, `window.location.origin`) and tries the Web Share API with the file. Otherwise it downloads the PNG and copies the link.
+- **Threats:** drones weave, missiles dive, swarms split. The carrier boss launches minis. The armour boss is a heavy missile.
+- **City:** the integrity bar is the skyline. A first-run tutorial (about 20 seconds, skippable) points at aim, fire, and the bar.
+- **Feel:** layered synthesized shots, a short hit-stop and slow motion on a level's last kill or a boss kill, screen flash, floating damage numbers. Phones can vibrate; the menu has a haptics toggle.
+- **Mute:** the button or `M`. Progress, stars, coins, unlocks, daily bests, and settings live in a versioned `localStorage` save. An older endless best score is kept.
+
+## Balancing
+
+Levels, bosses, weapons, coin rewards, and shop prices are data:
+
+- `src/campaign.ts` — the 12 levels
+- `src/config.ts` — weapons, shop, coins, stars, boss stats, endless `BALANCE`
 
 ## Rename the game
 

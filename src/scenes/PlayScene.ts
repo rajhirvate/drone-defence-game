@@ -1,20 +1,31 @@
 import Phaser from 'phaser'
 import { audio } from '../audio'
 import { emitView, onCommand } from '../bridge'
+import { buildLevelWave, levelById } from '../campaign'
 import {
   BALANCE,
+  BOSSES,
+  COINS,
+  FEEL,
+  SHOP,
+  TUTORIAL,
+  WEAPONS,
   fireInterval,
   pelletCount,
+  rankCost,
   shellDamage,
   splashRadius,
   spreadStep,
+  starsFor,
   type UpgradeId,
+  type WeaponId,
 } from '../config'
+import { dailyRand, todayKey } from '../daily'
 import { paintAction, paintBackdrop, type ActionFrame, type BackdropFrame } from '../draw'
-import { armDrone, armFlyby, armMissile, armShard, armSwarm, makeEnemy, retune, stepEnemy } from '../entities/enemy'
+import { armArmour, armCarrier, armDrone, armFlyby, armMissile, armShard, armSwarm, makeEnemy, retune, stepEnemy } from '../entities/enemy'
 import { clamp, clampAim, lerpAngle, mulberry32 } from '../math'
 import { buildSkyline, roofAt, type Building, type Skyline } from '../skyline'
-import { loadAutoFire, loadBest, loadMuted, saveAutoFire, saveBest, saveMuted, defaultAutoFire } from '../storage'
+import { defaultAutoFire, loadSave, saveGame, type SaveData } from '../storage'
 import { blankSnapshot, type Bullet, type Command, type Enemy, type Fire, type Marker, type Particle, type Snapshot, type Star } from '../types'
 import { buildWave, type SpawnEvent } from '../waves'
 
@@ -93,6 +104,30 @@ export class PlayScene extends Phaser.Scene {
   private cleanShown = 0
   private flybyCount = 0
   private waveClock = 0
+  private haptics = true
+  private mode: 'endless' | 'campaign' | 'daily' = 'endless'
+  private levelId = 1
+  private weapon: WeaponId = 'cannon'
+  private save: SaveData = loadSave()
+  private timeScale = 1
+  private slowT = 0
+  private hitStop = 0
+  private flash = 0
+  private empCd = 0
+  private laserTick = 0
+  private laserOn = false
+  private laserX = 0
+  private laserY = 0
+  private muzzleX = 0
+  private muzzleY = 0
+  private carrierTimer = 0
+  private tutorialStep = -1
+  private tutorialT = 0
+  private rng: () => number = Math.random
+  private dailyDate = ''
+  private runCoins = 0
+  private clearStars = 0
+  private clearCoins = 0
   private readonly view: Snapshot = blankSnapshot()
   private offCommand: (() => void) | null = null
 
@@ -103,9 +138,12 @@ export class PlayScene extends Phaser.Scene {
   create(): void {
     this.cityGfx = this.add.graphics().setDepth(0)
     this.fx = this.add.graphics().setDepth(2)
-    this.best = loadBest()
-    this.muted = loadMuted()
-    this.autoFire = loadAutoFire() ?? defaultAutoFire()
+    this.save = loadSave()
+    this.best = this.save.bestEndless
+    this.muted = this.save.muted
+    this.autoFire = this.save.autoFire ?? defaultAutoFire()
+    this.weapon = this.save.equipped
+    this.haptics = this.save.haptics
     this.reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     audio.setMuted(this.muted)
     this.stars = makeStars(72)
@@ -163,9 +201,18 @@ export class PlayScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     const dt = Math.min(0.033, delta / 1000)
     this.clock += dt
+    if (this.hitStop > 0) this.hitStop = Math.max(0, this.hitStop - dt)
+    if (this.slowT > 0) {
+      this.slowT -= dt
+      if (this.slowT <= 0) this.timeScale = 1
+    }
+    if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 1.6)
+    if (this.empCd > 0) this.empCd = Math.max(0, this.empCd - dt)
+    const sim = this.hitStop > 0 ? 0 : dt * this.timeScale
     if (this.shakeReady > 0) this.shakeReady -= dt
     if (this.hurt > 0) this.hurt = Math.max(0, this.hurt - dt * 2.4)
     if (this.muzzle > 0) this.muzzle = Math.max(0, this.muzzle - dt)
+    this.tickTutorial(dt)
     if (this.bannerT > 0) {
       this.bannerT -= dt
       if (this.bannerT <= 0) this.banner = ''
@@ -188,11 +235,12 @@ export class PlayScene extends Phaser.Scene {
     this.spin += this.spinSpeed * dt
     this.aimDisplay = lerpAngle(this.aimDisplay, this.aim, 1 - Math.exp(-16 * dt))
 
-    if (this.phase === 'menu') {
+    const idle = this.phase === 'menu' || this.phase === 'map' || this.phase === 'armoury'
+    if (idle) {
       this.aim = -Math.PI / 2 + Math.sin(this.clock * 0.7) * 0.95
       this.updateAttract(dt)
     } else if (this.phase === 'playing') {
-      this.updateCombat(dt, firing)
+      this.updateCombat(sim, firing)
     } else {
       this.decayFx(dt)
     }
@@ -205,30 +253,87 @@ export class PlayScene extends Phaser.Scene {
   private onCommand(command: Command): void {
     switch (command.type) {
       case 'start':
+      case 'start-endless':
+        this.mode = 'endless'
+        this.beginRun()
+        break
+      case 'start-daily':
+        this.mode = 'daily'
+        this.dailyDate = todayKey()
+        this.rng = dailyRand(this.dailyDate)
+        this.beginRun()
+        break
+      case 'start-level':
+        this.mode = 'campaign'
+        this.levelId = command.id
+        this.rng = mulberry32(4000 + command.id)
+        this.beginRun()
+        break
       case 'restart':
+        if (this.mode === 'daily') this.rng = dailyRand(this.dailyDate || todayKey())
         this.beginRun()
         break
       case 'upgrade':
         this.pickUpgrade(command.id)
         break
+      case 'open-map':
+      case 'to-map':
+        this.phase = 'map'
+        this.deactivateAll()
+        break
+      case 'open-armoury':
+        this.phase = 'armoury'
+        this.deactivateAll()
+        break
+      case 'back-menu':
+        this.phase = 'menu'
+        this.deactivateAll()
+        break
+      case 'equip':
+        if (this.save.owned[command.id]) {
+          this.save.equipped = command.id
+          this.weapon = command.id
+          saveGame(this.save)
+          audio.play('ui')
+        }
+        break
+      case 'buy-weapon':
+        this.buyWeapon(command.id)
+        break
+      case 'buy-rank':
+        this.buyRank(command.id)
+        break
       case 'toggle-mute':
         this.muted = !this.muted
+        this.save.muted = this.muted
         audio.setMuted(this.muted)
-        saveMuted(this.muted)
+        saveGame(this.save)
         if (!this.muted) audio.unlock()
         audio.play('ui')
         break
       case 'toggle-autofire':
         this.autoFire = !this.autoFire
-        saveAutoFire(this.autoFire)
+        this.save.autoFire = this.autoFire
+        saveGame(this.save)
         audio.play('ui')
+        break
+      case 'toggle-haptics':
+        this.haptics = !this.haptics
+        this.save.haptics = this.haptics
+        saveGame(this.save)
+        audio.play('ui')
+        break
+      case 'skip-tutorial':
+        this.tutorialStep = -1
+        this.save.tutorialSeen = true
+        saveGame(this.save)
         break
     }
     this.pushView()
   }
 
   private beginRun(): void {
-    if (this.phase !== 'menu' && this.phase !== 'gameover') return
+    if (this.phase === 'playing') return
     audio.unlock()
     audio.play('ui')
     this.score = 0
@@ -237,17 +342,35 @@ export class PlayScene extends Phaser.Scene {
     this.kills = 0
     this.mult = 1
     this.comboTime = 0
-    this.rateLevel = 0
-    this.spreadLevel = 0
-    this.damageLevel = 0
+    this.rateLevel = this.save.ranks.rate
+    this.spreadLevel = this.save.ranks.spread
+    this.damageLevel = this.save.ranks.damage
     this.newBest = false
     this.repairShown = 0
     this.cleanShown = 0
     this.hurt = 0
+    this.runCoins = 0
+    this.empCd = 0
+    this.timeScale = 1
+    this.slowT = 0
+    this.hitStop = 0
+    this.weapon = this.save.equipped
+    this.carrierTimer = 1.2
+    if (this.mode === 'endless') this.rng = Math.random
+    if (this.mode === 'daily') {
+      this.dailyDate = this.dailyDate || todayKey()
+      this.rng = dailyRand(this.dailyDate)
+    }
     this.deactivateAll()
     this.phase = 'playing'
     this.aim = -Math.PI / 2
     this.aimDisplay = this.aim
+    if (!this.save.tutorialSeen) {
+      this.tutorialStep = 0
+      this.tutorialT = 5
+    } else {
+      this.tutorialStep = -1
+    }
     this.beginWave()
   }
 
@@ -257,11 +380,13 @@ export class PlayScene extends Phaser.Scene {
     this.waveDamage = 0
     this.awaitingClear = false
     this.clearDelay = 0
-    const spec = buildWave(this.wave)
+    const spec =
+      this.mode === 'campaign' ? buildLevelWave(levelById(this.levelId)) : buildWave(this.wave, this.rng)
     this.speedMul = spec.speed
     this.spawns = spec.events
     this.queueIndex = 0
-    this.banner = `WAVE ${this.wave}`
+    const level = this.mode === 'campaign' ? levelById(this.levelId) : null
+    this.banner = level ? level.name.toUpperCase() : `WAVE ${this.wave}`
     this.bannerT = BALANCE.bannerTime
     this.fireCooldown = 0
     this.waveClock = 0
@@ -289,8 +414,11 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private updateCombat(dt: number, firing: boolean): void {
-    this.waveClock += dt
-    this.spawnDue()
+    const teaching = this.tutorialStep === 0 || this.tutorialStep === 1
+    if (!teaching) {
+      this.waveClock += dt
+      this.spawnDue()
+    }
     const world = {
       w: this.viewW,
       h: this.viewH,
@@ -305,10 +433,13 @@ export class PlayScene extends Phaser.Scene {
       stepEnemy(e, dt, world)
     }
 
-    if (firing) {
+    this.laserOn = false
+    if (firing && this.weapon === 'laser') this.fireLaser(dt)
+    else if (firing && this.weapon === 'emp') this.tryEmp()
+    else if (firing && this.weapon !== 'emp') {
       this.fireCooldown -= dt
       let guard = 0
-      const interval = fireInterval(this.rateLevel)
+      const interval = this.weapon === 'missile' ? WEAPONS.missile.interval : fireInterval(this.rateLevel)
       while (this.fireCooldown <= 0 && guard < 3) {
         this.shoot()
         this.fireCooldown += interval
@@ -317,6 +448,7 @@ export class PlayScene extends Phaser.Scene {
     } else if (this.fireCooldown < 0) {
       this.fireCooldown = 0
     }
+    this.launchCarrierMinis(dt)
 
     this.updateBullets(dt)
     this.impacts()
@@ -329,7 +461,7 @@ export class PlayScene extends Phaser.Scene {
     }
     if (this.awaitingClear) {
       this.clearDelay -= dt
-      if (this.clearDelay <= 0) this.openUpgrade()
+      if (this.clearDelay <= 0) this.onWaveCleared()
     }
   }
 
@@ -432,12 +564,13 @@ export class PlayScene extends Phaser.Scene {
     } else if (ev.kind === 'swarm') {
       const entryX = clamp(spot.targetX + (Math.random() - 0.5) * this.unit * 40, 20, this.viewW - 20)
       armSwarm(e, { ...common, entryX, y: -28 })
-    } else if (ev.kind === 'missile') {
-      armMissile(e, {
-        ...common,
-        arc: ev.arc,
-        arcAmp: ev.arcAmp * this.viewW * 0.16,
-      })
+    } else if (ev.kind === 'missile' || ev.kind === 'armour') {
+      const opts = { ...common, arc: ev.arc, arcAmp: ev.arcAmp * this.viewW * 0.16 }
+      if (ev.kind === 'armour') armArmour(e, opts)
+      else armMissile(e, opts)
+    } else if (ev.kind === 'carrier') {
+      armCarrier(e, { ...common, entryX: spot.targetX, y: -40 })
+      this.carrierTimer = 1.4
     }
   }
 
@@ -461,12 +594,13 @@ export class PlayScene extends Phaser.Scene {
     const s = Math.sin(angle)
     const tipX = pivotX + c * this.barrel
     const tipY = pivotY + s * this.barrel
-    const pellets = pelletCount(this.spreadLevel)
+    const homing = this.weapon === 'missile'
+    const pellets = homing ? 1 : pelletCount(this.spreadLevel)
     const step = spreadStep(this.spreadLevel)
     const start = -step * (pellets - 1) * 0.5
-    const damage = shellDamage(this.damageLevel)
-    const splash = splashRadius(this.spreadLevel, this.unit)
-    const speed = BALANCE.bulletSpeed * this.unit
+    const damage = homing ? WEAPONS.missile.damage + this.damageLevel : shellDamage(this.damageLevel)
+    const splash = homing ? 0 : splashRadius(this.spreadLevel, this.unit)
+    const speed = (homing ? WEAPONS.missile.speed : BALANCE.bulletSpeed) * this.unit
     for (let i = 0; i < pellets; i++) {
       const b = this.takeBullet()
       if (!b) break
@@ -480,14 +614,18 @@ export class PlayScene extends Phaser.Scene {
       b.py = b.y
       b.vx = ca * speed
       b.vy = sa * speed
-      b.life = BALANCE.bulletLife
+      b.life = homing ? 2.4 : BALANCE.bulletLife
       b.damage = damage
       b.splash = splash
-      b.r = BALANCE.bulletRadius * this.unit
-      b.flak = this.spreadLevel > 0
+      b.r = (homing ? 6 : BALANCE.bulletRadius) * this.unit
+      b.flak = !homing && this.spreadLevel > 0
+      b.homing = homing
+      b.turn = WEAPONS.missile.turn
     }
     this.muzzle = 0.045
-    audio.play('shot')
+    this.noteTutorial(1)
+    audio.play(homing ? 'homing' : 'shot')
+    this.buzz(8)
   }
 
   private updateBullets(dt: number): void {
@@ -498,6 +636,7 @@ export class PlayScene extends Phaser.Scene {
       if (!b.active) continue
       b.px = b.x
       b.py = b.y
+      if (b.homing) this.steerHoming(b, dt)
       const dist = Math.hypot(b.vx * dt, b.vy * dt)
       const steps = Math.max(1, Math.min(4, Math.ceil(dist / Math.max(8, this.unit * 10))))
       const sdt = dt / steps
@@ -550,6 +689,7 @@ export class PlayScene extends Phaser.Scene {
     if (!e.active || e.attract) return
     e.hp -= amount
     e.flash = 0.07
+    if (amount >= 1) this.popup(String(Math.ceil(amount)), e.x + e.r * 0.4, e.y - e.r, '#ffffff')
     if (e.hp <= 0) this.killEnemy(e)
   }
 
@@ -558,11 +698,15 @@ export class PlayScene extends Phaser.Scene {
     const x = e.x
     const y = e.y
     e.active = false
-    if (kind === 'swarm') this.spawnShards(e)
+    if (kind === 'swarm' || kind === 'carrier') this.spawnShards(e)
+    const boss = kind === 'carrier' || kind === 'armour'
     this.registerKill(e, x, y)
-    this.burst(x, y, kind, kind !== 'shard')
-    if (kind === 'swarm' || kind === 'missile') this.kick(kind === 'swarm' ? 0.006 : 0.004)
-    audio.play('boom')
+    this.burst(x, y, kind === 'carrier' || kind === 'armour' ? 'swarm' : kind, true)
+    if (boss) this.burst(x, y, 'city', true)
+    if (boss || kind === 'swarm' || kind === 'missile') this.kick(boss ? 0.01 : 0.004, boss ? 180 : 90)
+    if (boss || (this.mode === 'campaign' && !this.hostilesRemain())) this.celebrate(boss)
+    this.noteTutorial(2)
+    audio.play(boss ? 'bigboom' : 'boom')
   }
 
   private spawnShards(parent: Enemy): void {
@@ -582,6 +726,10 @@ export class PlayScene extends Phaser.Scene {
     this.comboTime = BALANCE.comboWindow
     const gained = e.score * this.mult
     this.score += gained
+    const coins = COINS[e.kind]
+    this.save.coins += coins
+    this.runCoins += coins
+    saveGame(this.save)
     this.noteBest()
     const color = this.mult >= 4 ? '#ffb15a' : this.mult >= 2 ? '#9af6ff' : '#f4f1ea'
     this.popup(`+${gained}`, x, y - e.r, color)
@@ -607,7 +755,7 @@ export class PlayScene extends Phaser.Scene {
     this.addFire(e.x / Math.max(1, this.viewW))
     this.kick(0.011, 160, true)
     audio.play('city')
-    buzz(this.reduce ? 0 : 28)
+    this.buzz(this.reduce ? 0 : 28)
     this.comboTime = 0
     this.mult = 1
     if (this.cityHp <= 0) this.gameOver()
@@ -631,6 +779,30 @@ export class PlayScene extends Phaser.Scene {
     audio.play('clear')
   }
 
+  private onWaveCleared(): void {
+    if (this.phase !== 'playing') return
+    if (this.mode === 'campaign') this.finishLevel()
+    else if (this.mode === 'daily') this.beginWave()
+    else this.openUpgrade()
+  }
+
+  private finishLevel(): void {
+    const level = levelById(this.levelId)
+    const stars = starsFor(this.cityHp, BALANCE.cityMax)
+    const bonus = level.coins + stars * 8
+    this.save.coins += bonus
+    this.save.stars[level.id] = Math.max(this.save.stars[level.id] ?? 0, stars)
+    if (level.id >= this.save.unlocked && level.id < 12) this.save.unlocked = level.id + 1
+    if (level.grant) this.save.owned[level.grant] = true
+    this.save.tutorialSeen = true
+    this.tutorialStep = -1
+    saveGame(this.save)
+    this.clearStars = stars
+    this.clearCoins = bonus
+    this.phase = 'clear'
+    audio.play('clear')
+  }
+
   private gameOver(): void {
     if (this.phase === 'gameover') return
     this.phase = 'gameover'
@@ -639,14 +811,27 @@ export class PlayScene extends Phaser.Scene {
     this.awaitingClear = false
     this.noteBest()
     audio.play('over')
-    buzz(this.reduce ? 0 : 70)
+    this.buzz(this.reduce ? 0 : 70)
   }
 
   private noteBest(): void {
-    if (this.score > this.best) {
+    if (this.mode === 'daily') {
+      const date = this.dailyDate || todayKey()
+      const prev = this.save.dailyBest[date] ?? 0
+      if (this.score > prev) {
+        this.save.dailyBest[date] = this.score
+        this.newBest = true
+        saveGame(this.save)
+      }
+      this.best = this.save.dailyBest[date] ?? this.score
+      return
+    }
+    if (this.mode !== 'endless') return
+    if (this.score > this.save.bestEndless) {
+      this.save.bestEndless = this.score
       this.best = this.score
       this.newBest = true
-      saveBest(this.best)
+      saveGame(this.save)
     }
   }
 
@@ -656,7 +841,9 @@ export class PlayScene extends Phaser.Scene {
     const dx = x - pivotX
     const dy = y - pivotY
     if (dx * dx + dy * dy < 36) return
-    this.aim = clampAim(Math.atan2(dy, dx), BALANCE.aimMin, BALANCE.aimMax)
+    const next = clampAim(Math.atan2(dy, dx), BALANCE.aimMin, BALANCE.aimMax)
+    if (Math.abs(next - this.aim) > 0.08) this.noteTutorial(0)
+    this.aim = next
     this.reticleX = x
     this.reticleY = y
     this.showReticle = true
@@ -907,6 +1094,11 @@ export class PlayScene extends Phaser.Scene {
       reticleY: this.reticleY,
       showReticle: this.showReticle,
       phase: this.phase,
+      laserOn: this.laserOn,
+      laserX: this.laserX,
+      laserY: this.laserY,
+      muzzleX: this.muzzleX,
+      muzzleY: this.muzzleY,
     }
     paintAction(this.fx, frame)
   }
@@ -941,7 +1133,203 @@ export class PlayScene extends Phaser.Scene {
     v.nextDamage = shellDamage(this.damageLevel + 1)
     v.splash = Math.round(splashRadius(this.spreadLevel, 1))
     v.nextSplash = Math.round(splashRadius(this.spreadLevel + 1, 1))
+    v.mode = this.mode
+    v.coins = this.save.coins
+    v.weapon = this.weapon
+    v.ownedLaser = this.save.owned.laser
+    v.ownedMissile = this.save.owned.missile
+    v.ownedEmp = this.save.owned.emp
+    v.empCd = this.empCd
+    v.empMax = WEAPONS.emp.cooldown
+    v.tutorial = this.tutorialStep >= 0 ? TUTORIAL[Math.min(3, this.tutorialStep)] : ''
+    v.levelName = this.mode === 'campaign' ? levelById(this.levelId).name : ''
+    v.clearStars = this.clearStars
+    v.clearCoins = this.clearCoins
+    v.flash = this.flash
+    v.dailyDate = this.dailyDate
+    v.dailyBest = this.save.dailyBest[this.dailyDate] ?? 0
+    if (this.mode === 'endless') v.best = this.save.bestEndless
     emitView(v)
+  }
+
+  private tickTutorial(dt: number): void {
+    if (this.tutorialStep < 0 || this.phase !== 'playing') return
+    this.tutorialT -= dt
+    if (this.tutorialT <= 0) {
+      this.tutorialStep += 1
+      this.tutorialT = 5
+      if (this.tutorialStep > 3) {
+        this.tutorialStep = -1
+        this.save.tutorialSeen = true
+        saveGame(this.save)
+      }
+    }
+  }
+
+  private noteTutorial(step: number): void {
+    if (this.tutorialStep !== step) return
+    this.tutorialStep += 1
+    this.tutorialT = 5
+    if (this.tutorialStep > 3) {
+      this.tutorialStep = -1
+      this.save.tutorialSeen = true
+      saveGame(this.save)
+    }
+  }
+
+  private buyWeapon(id: 'laser' | 'missile' | 'emp'): void {
+    if (this.save.owned[id]) {
+      this.save.equipped = id
+      this.weapon = id
+      saveGame(this.save)
+      return
+    }
+    const cost = SHOP.unlock[id]
+    if (this.save.coins < cost) return
+    this.save.coins -= cost
+    this.save.owned[id] = true
+    this.save.equipped = id
+    this.weapon = id
+    saveGame(this.save)
+    audio.play('upgrade')
+  }
+
+  private buyRank(id: UpgradeId): void {
+    const rank = this.save.ranks[id]
+    if (rank >= SHOP.maxRank) return
+    const cost = rankCost(rank)
+    if (this.save.coins < cost) return
+    this.save.coins -= cost
+    this.save.ranks[id] = rank + 1
+    saveGame(this.save)
+    audio.play('upgrade')
+  }
+
+  private fireLaser(dt: number): void {
+    const pivotX = this.turretX
+    const pivotY = this.turretY - this.unit * 16
+    const angle = this.aimDisplay
+    const c = Math.cos(angle)
+    const s = Math.sin(angle)
+    this.muzzleX = pivotX + c * this.barrel
+    this.muzzleY = pivotY + s * this.barrel
+    const range = WEAPONS.laser.range * this.unit
+    let best: Enemy | null = null
+    let bestT = range
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i]
+      if (!e.active || e.attract) continue
+      const dx = e.x - this.muzzleX
+      const dy = e.y - this.muzzleY
+      const along = dx * c + dy * s
+      if (along < 0 || along > range) continue
+      const side = Math.abs(dx * -s + dy * c)
+      if (side > e.r + this.unit * 6) continue
+      if (along < bestT) {
+        bestT = along
+        best = e
+      }
+    }
+    this.laserOn = true
+    this.laserX = this.muzzleX + c * (best ? bestT : range)
+    this.laserY = this.muzzleY + s * (best ? bestT : range)
+    this.muzzle = 0.04
+    audio.play('laser')
+    this.noteTutorial(1)
+    if (!best) return
+    this.laserTick -= dt
+    if (this.laserTick <= 0) {
+      this.damageEnemy(best, WEAPONS.laser.damage + this.damageLevel * 0.4)
+      this.laserTick = WEAPONS.laser.tick
+      this.spark(best.x, best.y, 0xff8aa0)
+    }
+  }
+
+  private tryEmp(): void {
+    if (this.empCd > 0) return
+    const radius = WEAPONS.emp.radius * this.unit
+    const r2 = radius * radius
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i]
+      if (!e.active || e.attract) continue
+      const dx = e.x - this.turretX
+      const dy = e.y - (this.turretY - this.barrel)
+      if (dx * dx + dy * dy <= r2) e.stun = WEAPONS.emp.stun
+    }
+    this.empCd = WEAPONS.emp.cooldown
+    this.burst(this.turretX, this.turretY - this.barrel * 0.5, 'swarm', true)
+    this.flash = 0.65
+    this.kick(0.006, 120, true)
+    audio.play('emp')
+    this.buzz(18)
+    this.noteTutorial(1)
+  }
+
+  private steerHoming(b: Bullet, dt: number): void {
+    let target: Enemy | null = null
+    let best = Infinity
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i]
+      if (!e.active || e.attract) continue
+      const d = (e.x - b.x) ** 2 + (e.y - b.y) ** 2
+      if (d < best) {
+        best = d
+        target = e
+      }
+    }
+    if (!target) return
+    const speed = Math.hypot(b.vx, b.vy) || 1
+    const desired = Math.atan2(target.y - b.y, target.x - b.x)
+    const current = Math.atan2(b.vy, b.vx)
+    const diff = Math.atan2(Math.sin(desired - current), Math.cos(desired - current))
+    const next = current + clamp(diff, -b.turn * dt, b.turn * dt)
+    b.vx = Math.cos(next) * speed
+    b.vy = Math.sin(next) * speed
+  }
+
+  private launchCarrierMinis(dt: number): void {
+    this.carrierTimer -= dt
+    if (this.carrierTimer > 0) return
+    let carrier: Enemy | null = null
+    for (let i = 0; i < this.enemies.length; i++) {
+      if (this.enemies[i].active && this.enemies[i].kind === 'carrier') carrier = this.enemies[i]
+    }
+    if (!carrier) return
+    this.carrierTimer = BOSSES.carrier.launchEvery
+    for (let n = 0; n < 2; n++) {
+      const mini = this.takeEnemy()
+      if (!mini) return
+      armDrone(mini, {
+        unit: this.unit,
+        speedMul: this.speedMul,
+        wave: Math.max(1, this.wave),
+        x: carrier.x,
+        y: carrier.y,
+        targetX: clamp(carrier.x + (n === 0 ? -40 : 40), 20, this.viewW - 20),
+        targetY: this.groundY,
+        entryX: carrier.x + (n === 0 ? -18 : 18),
+      })
+      mini.y = carrier.y + 10
+      mini.hp = 1
+      mini.maxHp = 1
+    }
+  }
+
+  private celebrate(boss: boolean): void {
+    this.hitStop = FEEL.hitStop
+    this.timeScale = FEEL.slowScale
+    this.slowT = boss ? FEEL.bossSlow : FEEL.slowTime
+    this.flash = 1
+    this.buzz(boss ? 40 : 16)
+  }
+
+  private buzz(ms: number): void {
+    if (!this.haptics || this.reduce || ms <= 0) return
+    try {
+      if (typeof navigator.vibrate === 'function') navigator.vibrate(ms)
+    } catch {
+      /* ignore */
+    }
   }
 
   private deactivateAll(): void {
@@ -1048,6 +1436,8 @@ function makeBullet(): Bullet {
     splash: 0,
     r: 3,
     flak: false,
+    homing: false,
+    turn: 2,
   }
 }
 
@@ -1085,13 +1475,4 @@ function makeStars(count: number): Star[] {
     })
   }
   return stars
-}
-
-function buzz(ms: number): void {
-  if (ms <= 0) return
-  try {
-    if (typeof navigator.vibrate === 'function') navigator.vibrate(ms)
-  } catch {
-    /* ignore */
-  }
 }

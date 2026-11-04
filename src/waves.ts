@@ -2,7 +2,7 @@ import { clamp } from './math'
 
 export type Side = 'top' | 'left' | 'right'
 
-export type SpawnKind = 'drone' | 'missile' | 'swarm' | 'marker'
+export type SpawnKind = 'drone' | 'missile' | 'swarm' | 'marker' | 'carrier' | 'armour'
 
 export interface SpawnEvent {
   at: number
