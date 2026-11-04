@@ -9,6 +9,7 @@ import {
   FEEL,
   SHOP,
   TUTORIAL,
+  MISSILE_SKINS,
   WEAPONS,
   fireInterval,
   pelletCount,
@@ -17,11 +18,13 @@ import {
   splashRadius,
   spreadStep,
   starsFor,
+  type MissileSkinId,
   type UpgradeId,
   type WeaponId,
 } from '../config'
 import { dailyRand, todayKey } from '../daily'
 import { paintAction, paintBackdrop, type ActionFrame, type BackdropFrame, type Beam } from '../draw'
+import { empReach, ringReaches } from '../emp'
 import { armArmour, armCarrier, armDrone, armFlyby, armMissile, armShard, armSwarm, makeEnemy, retune, stepEnemy } from '../entities/enemy'
 import { clamp, clampAim, lerpAngle, mulberry32 } from '../math'
 import { buildSkyline, roofAt, type Building, type Skyline } from '../skyline'
@@ -130,6 +133,10 @@ export class PlayScene extends Phaser.Scene {
   private clearCoins = 0
   private paused = false
   private beams: Beam[] = []
+  private empQueued = false
+  private fireHold = 0
+  private empSerial = 1
+  private empPulses: { id: number; x: number; y: number; r: number; max: number; life: number; maxLife: number }[] = []
   private readonly view: Snapshot = blankSnapshot()
   private offCommand: (() => void) | null = null
 
@@ -160,7 +167,9 @@ export class PlayScene extends Phaser.Scene {
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       audio.unlock()
       this.pointerDown = true
-      if (this.phase === 'playing') this.aimAt(p.worldX, p.worldY)
+      if (this.phase !== 'playing') return
+      this.aimAt(p.worldX, p.worldY)
+      this.armTap()
     })
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (this.phase !== 'playing') return
@@ -179,6 +188,8 @@ export class PlayScene extends Phaser.Scene {
       this.input.keyboard.on('keydown-SPACE', (event: KeyboardEvent) => {
         if (event.repeat) return
         this.spaceDown = true
+        if (buttonFocused()) return
+        this.armTap()
       })
       this.input.keyboard.on('keyup-SPACE', () => {
         this.spaceDown = false
@@ -215,6 +226,7 @@ export class PlayScene extends Phaser.Scene {
     if (this.shakeReady > 0) this.shakeReady -= dt
     if (this.hurt > 0) this.hurt = Math.max(0, this.hurt - dt * 2.4)
     if (this.muzzle > 0) this.muzzle = Math.max(0, this.muzzle - dt)
+    if (this.fireHold > 0) this.fireHold = Math.max(0, this.fireHold - dt)
     this.tickTutorial(dt)
     if (this.bannerT > 0) {
       this.bannerT -= dt
@@ -248,6 +260,7 @@ export class PlayScene extends Phaser.Scene {
       this.decayFx(dt)
     }
 
+    this.tickEmp(dt)
     this.updateFloaters(dt)
     this.drawAction(firing)
     this.pushView()
@@ -301,6 +314,21 @@ export class PlayScene extends Phaser.Scene {
       case 'resume':
         this.paused = false
         break
+      case 'fire-emp':
+        if (this.phase === 'playing' && this.weapon === 'emp') this.empQueued = true
+        break
+      case 'tap-fire':
+        if (this.phase === 'playing' && this.weapon !== 'emp') this.fireHold = Math.max(this.fireHold, 0.22)
+        break
+      case 'mark-emp-hint':
+        if (!this.save.empHintSeen) {
+          this.save.empHintSeen = true
+          saveGame(this.save)
+        }
+        break
+      case 'buy-skin':
+        this.buySkin(command.id)
+        break
       case 'equip':
         if (this.save.owned[command.id]) {
           this.save.equipped = command.id
@@ -347,6 +375,9 @@ export class PlayScene extends Phaser.Scene {
   private beginRun(): void {
     if (this.phase === 'playing') return
     this.paused = false
+    this.empQueued = false
+    this.fireHold = 0
+    this.empPulses.length = 0
     audio.unlock()
     audio.play('ui')
     this.score = 0
@@ -418,11 +449,18 @@ export class PlayScene extends Phaser.Scene {
     this.beginWave()
   }
 
+  private armTap(): void {
+    if (this.phase !== 'playing') return
+    if (this.weapon === 'emp') this.empQueued = true
+    else this.fireHold = Math.max(this.fireHold, 0.22)
+  }
+
   private wantsFire(): boolean {
-    if (this.phase !== 'playing') return false
+    if (this.phase !== 'playing' || this.weapon === 'emp') return false
     if (this.autoFire) return true
     if (this.pointerDown) return true
     if (this.spaceDown && !buttonFocused()) return true
+    if (this.fireHold > 0) return true
     return false
   }
 
@@ -447,9 +485,13 @@ export class PlayScene extends Phaser.Scene {
     }
 
     this.laserOn = false
-    if (firing && this.weapon === 'laser') this.fireLaser(dt)
-    else if (firing && this.weapon === 'emp') this.tryEmp()
-    else if (firing && this.weapon !== 'emp') {
+    if (this.weapon === 'emp') {
+      if (this.empQueued) {
+        this.empQueued = false
+        this.tryEmp()
+      }
+    } else if (firing && this.weapon === 'laser') this.fireLaser(dt)
+    else if (firing) {
       this.fireCooldown -= dt
       let guard = 0
       const interval = this.weapon === 'missile' ? WEAPONS.missile.interval : fireInterval(this.rateLevel)
@@ -690,6 +732,7 @@ export class PlayScene extends Phaser.Scene {
       b.flak = !homing && this.spreadLevel > 0
       b.homing = homing
       b.turn = WEAPONS.missile.turn
+      b.skin = homing ? this.save.missileSkin : 'standard'
     }
     this.muzzle = 0.045
     this.noteTutorial(1)
@@ -721,7 +764,7 @@ export class PlayScene extends Phaser.Scene {
         if (b.splash > 0) this.collectSplash(b, hit)
         this.damageEnemy(hit, b.damage)
         for (let s = 0; s < this.splashBuf.length; s++) this.damageEnemy(this.splashBuf[s], b.damage)
-        this.spark(b.x, b.y, b.flak ? 0xffe1a3 : 0x9af6ff)
+        this.popRound(b)
         b.active = false
         continue
       }
@@ -1170,6 +1213,7 @@ export class PlayScene extends Phaser.Scene {
       muzzleY: this.muzzleY,
       reduceMotion: this.reduce,
       beams: this.beams,
+      empPulses: this.empPulses,
     }
     paintAction(this.fx, frame)
   }
@@ -1220,6 +1264,8 @@ export class PlayScene extends Phaser.Scene {
     v.dailyDate = this.dailyDate
     v.dailyBest = this.save.dailyBest[this.dailyDate] ?? 0
     v.paused = this.paused
+    v.missileSkin = this.save.missileSkin
+    v.ownedSkinKey = (['flare', 'needle', 'comet'] as const).filter((id) => this.save.ownedSkins[id]).join(',')
     if (this.mode === 'endless') v.best = this.save.bestEndless
     emitView(v)
   }
@@ -1318,23 +1364,110 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private tryEmp(): void {
-    if (this.empCd > 0) return
-    const radius = WEAPONS.emp.radius * this.unit
-    const r2 = radius * radius
-    for (let i = 0; i < this.enemies.length; i++) {
-      const e = this.enemies[i]
-      if (!e.active || e.attract) continue
-      const dx = e.x - this.turretX
-      const dy = e.y - (this.turretY - this.barrel)
-      if (dx * dx + dy * dy <= r2) e.stun = WEAPONS.emp.stun
-    }
+    if (this.phase !== 'playing' || this.empCd > 0 || this.weapon !== 'emp') return
+    const y = this.turretY - this.unit * 16
+    const radius = empReach(this.turretX, y, this.viewW, this.viewH, this.unit, WEAPONS.emp.radius)
+    const life = this.reduce ? 0.12 : 0.85
+    this.empPulses.push({
+      id: this.empSerial++,
+      x: this.turretX,
+      y,
+      r: Math.max(6, this.unit * 10),
+      max: radius,
+      life,
+      maxLife: life,
+    })
     this.empCd = WEAPONS.emp.cooldown
-    this.burst(this.turretX, this.turretY - this.barrel * 0.5, 'swarm', true)
-    this.flash = 0.65
-    this.kick(0.006, 120, true)
+    this.flash = 0.7
+    this.kick(0.012, 200, true)
     audio.play('emp')
-    this.buzz(18)
+    this.buzz(22)
     this.noteTutorial(1)
+  }
+
+  private tickEmp(dt: number): void {
+    let write = 0
+    for (let i = 0; i < this.empPulses.length; i++) {
+      const pulse = this.empPulses[i]
+      const prev = pulse.r
+      pulse.life -= dt
+      const grown = 1 - Math.max(0, pulse.life) / pulse.maxLife
+      pulse.r = Math.max(prev, pulse.max * Math.min(1, grown))
+      const finishing = pulse.life <= 0
+      if (finishing) pulse.r = pulse.max
+      for (let n = 0; n < this.enemies.length; n++) {
+        const enemy = this.enemies[n]
+        const crossed = ringReaches(prev, pulse.r, pulse.x, pulse.y, enemy, pulse.id)
+        const inside =
+          finishing &&
+          enemy.active &&
+          !enemy.attract &&
+          enemy.empMark !== pulse.id &&
+          Math.hypot(enemy.x - pulse.x, enemy.y - pulse.y) <= pulse.max + enemy.r
+        if (!crossed && !inside) continue
+        enemy.empMark = pulse.id
+        enemy.stun = Math.max(enemy.stun, WEAPONS.emp.stun)
+        enemy.flash = 0.28
+        this.damageEnemy(enemy, WEAPONS.emp.damage)
+      }
+      if (!finishing) this.empPulses[write++] = pulse
+    }
+    this.empPulses.length = write
+  }
+
+  private buySkin(id: MissileSkinId): void {
+    const def = MISSILE_SKINS.find((skin) => skin.id === id)
+    if (!def) return
+    if (!this.save.ownedSkins[id]) {
+      if (this.save.coins < def.cost) return
+      this.save.coins -= def.cost
+      this.save.ownedSkins[id] = true
+    }
+    this.save.missileSkin = id
+    saveGame(this.save)
+    audio.play('upgrade')
+  }
+
+  private popRound(b: Bullet): void {
+    if (!b.homing || b.skin === 'standard') {
+      this.spark(b.x, b.y, b.flak ? 0xffe1a3 : 0x9af6ff)
+      return
+    }
+    if (b.skin === 'flare') {
+      this.spark(b.x, b.y, 0xff8a3d)
+      this.burst(b.x, b.y, 'city', false)
+      return
+    }
+    if (b.skin === 'needle') {
+      this.spark(b.x, b.y, 0xffffff)
+      const ring = this.takeParticle()
+      ring.active = true
+      ring.ring = true
+      ring.x = b.x
+      ring.y = b.y
+      ring.vx = 0
+      ring.vy = 0
+      ring.r = 3
+      ring.max = 0.18
+      ring.life = 0.18
+      ring.color = 0xf7fbff
+      ring.grav = 0
+      return
+    }
+    this.spark(b.x, b.y, 0xc9a6ff)
+    const ring = this.takeParticle()
+    ring.active = true
+    ring.ring = true
+    ring.x = b.x
+    ring.y = b.y
+    ring.vx = 0
+    ring.vy = 0
+    ring.r = 6
+    ring.max = 0.4
+    ring.life = 0.4
+    ring.color = 0xc9a6ff
+    ring.grav = 0
+    this.burst(b.x, b.y, 'swarm', false)
   }
 
   private steerHoming(b: Bullet, dt: number): void {
@@ -1406,6 +1539,8 @@ export class PlayScene extends Phaser.Scene {
 
   private deactivateAll(): void {
     this.beams.length = 0
+    this.empPulses.length = 0
+    this.empQueued = false
     for (let i = 0; i < this.enemies.length; i++) this.enemies[i].active = false
     for (let i = 0; i < this.bullets.length; i++) this.bullets[i].active = false
     for (let i = 0; i < this.particles.length; i++) this.particles[i].active = false
@@ -1511,6 +1646,7 @@ function makeBullet(): Bullet {
     flak: false,
     homing: false,
     turn: 2,
+    skin: 'standard',
   }
 }
 

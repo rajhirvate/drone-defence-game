@@ -1,4 +1,4 @@
-import type { WeaponId } from './config'
+import { isMissileSkin, type MissileSkinId, type WeaponId } from './config'
 
 const SAVE_KEY = 'drone-defence.save'
 const LEGACY_BEST = 'drone-defence.best'
@@ -6,7 +6,8 @@ const LEGACY_MUTE = 'drone-defence.muted'
 const LEGACY_AUTO = 'drone-defence.autofire'
 
 export interface SaveData {
-  v: 2
+  /** 2 is the previous save. 3 adds missile skins and the EMP hint flag. */
+  v: 2 | 3
   coins: number
   /** Stars earned per level id. Index 0 is unused. */
   stars: number[]
@@ -21,11 +22,14 @@ export interface SaveData {
   autoFire: boolean | null
   haptics: boolean
   tutorialSeen: boolean
+  missileSkin: MissileSkinId
+  ownedSkins: Record<MissileSkinId, boolean>
+  empHintSeen: boolean
 }
 
 function emptySave(): SaveData {
   return {
-    v: 2,
+    v: 3,
     coins: 0,
     stars: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     unlocked: 1,
@@ -38,6 +42,9 @@ function emptySave(): SaveData {
     autoFire: null,
     haptics: true,
     tutorialSeen: false,
+    missileSkin: 'standard',
+    ownedSkins: { standard: true, flare: false, needle: false, comet: false },
+    empHintSeen: false,
   }
 }
 
@@ -64,7 +71,7 @@ function legacyBest(): number {
 
 function sanitize(raw: Partial<SaveData> | null): SaveData {
   const base = emptySave()
-  if (!raw || raw.v !== 2) return base
+  if (!raw || (raw.v !== 2 && raw.v !== 3)) return base
   base.coins = Math.max(0, Math.floor(raw.coins ?? 0))
   if (Array.isArray(raw.stars)) {
     for (let i = 1; i < base.stars.length; i++) {
@@ -98,6 +105,16 @@ function sanitize(raw: Partial<SaveData> | null): SaveData {
   base.autoFire = raw.autoFire === true ? true : raw.autoFire === false ? false : null
   base.haptics = raw.haptics !== false
   base.tutorialSeen = raw.tutorialSeen === true
+  base.empHintSeen = raw.empHintSeen === true
+  const ownedSkins = raw.ownedSkins
+  if (ownedSkins) {
+    base.ownedSkins.flare = ownedSkins.flare === true
+    base.ownedSkins.needle = ownedSkins.needle === true
+    base.ownedSkins.comet = ownedSkins.comet === true
+  }
+  if (typeof raw.missileSkin === 'string' && isMissileSkin(raw.missileSkin) && base.ownedSkins[raw.missileSkin]) {
+    base.missileSkin = raw.missileSkin
+  }
   return base
 }
 
@@ -110,7 +127,10 @@ export function loadSave(): SaveData {
   const raw = read(SAVE_KEY)
   if (raw) {
     try {
-      return sanitize(JSON.parse(raw) as Partial<SaveData>)
+      const parsed = JSON.parse(raw) as Partial<SaveData>
+      const save = sanitize(parsed)
+      if (parsed.v !== 3) saveGame(save)
+      return save
     } catch {
       return migrate()
     }

@@ -49,6 +49,7 @@ export function makeEnemy(): Enemy {
     killX: 0,
     seed: 0,
     stun: 0,
+    empMark: 0,
   }
 }
 
