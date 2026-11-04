@@ -35,8 +35,8 @@ Asset URLs are relative (`base: './'`), so the same `dist/` folder works on a ho
 - **Daily challenge:** one seeded run per local calendar day, so everyone faces the same waves that day. Game over builds a PNG share card (score, wave, date, name, `window.location.origin`) and tries the Web Share API with the file. Otherwise it downloads the PNG and copies the link.
 - **Threats:** drones weave, missiles dive, swarms split. The carrier boss launches minis. The armour boss is a heavy missile.
 - **City:** the integrity bar is the skyline. A first-run tutorial (about 20 seconds, skippable) points at aim, fire, and the bar.
-- **Feel:** layered synthesized shots, a short hit-stop and slow motion on a level's last kill or a boss kill, screen flash, floating damage numbers. Phones can vibrate; the menu has a haptics toggle.
-- **Mute:** the button or `M`. Progress, stars, coins, unlocks, daily bests, and settings live in a versioned `localStorage` save. An older endless best score is kept.
+- **Feel:** layered synthesized shots, a short hit-stop and slow motion on a level's last kill or a boss kill, screen flash, floating damage numbers. Phones can vibrate. Sound, haptics, and auto-fire sit in the title-screen settings gear. Pause (button or Escape) holds a run.
+- **Mute:** the button or `M`. Progress, stars, coins, unlocks, daily bests, and settings live in a versioned `localStorage` save. An older endless best score is kept. The save shape is unchanged by the menu redesign.
 
 ## Balancing
 
@@ -67,7 +67,9 @@ Repeat `npm run build` and `npx cap copy` after web changes. The UI already pads
 
 Sound is synthesized in the browser with the Web Audio API. There are no audio files. Graphics are drawn in code (sky, skyline, turret, threats, tracers, explosions). Both are original to this project.
 
-Phaser is MIT licensed. Vite and TypeScript use their own upstream licenses. This game does not ship third-party art or sample packs.
+Headings use [Orbitron](https://github.com/theleagueof/orbitron) by The Orbitron Project Authors, licensed under the SIL Open Font License 1.1. The font file is `src/fonts/orbitron-latin-700-normal.woff2` and the license is `src/fonts/OFL.txt` (also shipped as `fonts/OFL.txt`). It is self-hosted. The page does not request fonts, analytics, or other remote assets at runtime.
+
+Phaser is MIT licensed. Vite and TypeScript use their own upstream licenses.
 
 ## Project map
 
