@@ -133,12 +133,12 @@ export function mountUi(root: HTMLElement): void {
           <button type="button" class="mode-card" id="endless">
             <span class="mode-ico" aria-hidden="true">${ICO.endless}</span>
             <span class="mode-name">Endless</span>
-            <span class="mode-sub">Best <strong id="menu-best">0</strong></span>
+            <span class="mode-sub"><span class="mode-line">Best <strong id="menu-best">0</strong></span></span>
           </button>
           <button type="button" class="mode-card" id="daily">
             <span class="mode-ico" aria-hidden="true">${ICO.daily}</span>
             <span class="mode-name">Daily</span>
-            <span class="mode-sub" id="menu-daily">—</span>
+            <span class="mode-sub" id="menu-daily"><span id="menu-daily-date">—</span><span id="menu-daily-best">Best —</span></span>
           </button>
           <button type="button" class="mode-card" id="armoury">
             <span class="mode-ico" aria-hidden="true">${ICO.armoury}</span>
@@ -291,12 +291,14 @@ export function mountUi(root: HTMLElement): void {
     setSheet(howto, false, howtoOpen)
   }
 
-  gear?.addEventListener('click', () => {
+  gear?.addEventListener('click', (event) => {
+    event.stopPropagation()
     const open = settings?.hidden !== false
     setSheet(settings, open, gear)
     setSheet(howto, false, howtoOpen)
   })
-  howtoOpen?.addEventListener('click', () => {
+  howtoOpen?.addEventListener('click', (event) => {
+    event.stopPropagation()
     const open = howto?.hidden !== false
     setSheet(howto, open, howtoOpen)
     setSheet(settings, false, gear)
@@ -307,8 +309,8 @@ export function mountUi(root: HTMLElement): void {
   menu?.addEventListener('click', (event) => {
     const target = event.target
     if (!(target instanceof Node)) return
-    if (settings && !settings.hidden && target !== gear && !settings.contains(target)) setSheet(settings, false, gear)
-    if (howto && !howto.hidden && target !== howtoOpen && !howto.contains(target)) setSheet(howto, false, howtoOpen)
+    if (settings && !settings.hidden && !gear?.contains(target) && !settings.contains(target)) setSheet(settings, false, gear)
+    if (howto && !howto.hidden && !howtoOpen?.contains(target) && !howto.contains(target)) setSheet(howto, false, howtoOpen)
   })
 
   campaignBtn?.addEventListener('click', () => {
@@ -509,12 +511,14 @@ export function mountUi(root: HTMLElement): void {
     }
     const menuBest = root.querySelector('#menu-best')
     if (menuBest && snapshot.phase === 'menu') menuBest.textContent = formatInt(snapshot.best)
-    const dailyLine = root.querySelector('#menu-daily')
-    if (dailyLine && snapshot.phase === 'menu') {
+    const dailyDate = root.querySelector('#menu-daily-date')
+    const dailyBest = root.querySelector('#menu-daily-best')
+    if (dailyDate && dailyBest && snapshot.phase === 'menu') {
       const save = loadSave()
       const date = todayKey()
       const best = save.dailyBest[date]
-      dailyLine.textContent = best ? `${formatDay(date)} · Best ${formatInt(best)}` : `${formatDay(date)} · Best —`
+      dailyDate.textContent = formatDay(date)
+      dailyBest.textContent = best ? `Best ${formatInt(best)}` : 'Best —'
     }
     const coinsEl = root.querySelector('#coins')
     if (coinsEl) coinsEl.textContent = formatInt(snapshot.coins)
