@@ -8,14 +8,60 @@ import { renderShareCard, shareCard } from './sharecard'
 import { loadSave } from './storage'
 import type { Snapshot } from './types'
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function icon(paths: string): string {
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths}</svg>`
+}
+
+const ICO = {
+  gear: icon(
+    '<circle cx="12" cy="12" r="3"/><path d="M12 3.2v2.2M12 18.6V21M3.2 12h2.2M18.6 12H21M5.8 5.8l1.5 1.5M16.7 16.7l1.5 1.5M18.2 5.8l-1.5 1.5M7.3 16.7l-1.5 1.5"/>',
+  ),
+  sound: icon('<path d="M4 9h4l5-4v14l-5-4H4z"/><path class="wave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/>'),
+  haptic: icon('<rect x="8" y="3" width="8" height="18" rx="2"/><path d="M5 9.5v5M19 9.5v5"/>'),
+  cross: icon('<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v4.2M12 17v4.2M2.8 12h4.2M17 12h4.2"/>'),
+  endless: icon('<circle cx="8" cy="12" r="3.2"/><circle cx="16" cy="12" r="3.2"/>'),
+  daily: icon('<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3.5v4M16 3.5v4M4 10h16"/>'),
+  armoury: icon('<path d="M12 3.2 19 6v5.6c0 4.2-2.8 7-7 8.8-4.2-1.8-7-4.6-7-8.8V6z"/>'),
+  pause: icon('<path d="M7 4h3.2v16H7zM13.8 4H17v16h-3.2z"/>'),
+  rate: icon('<path d="M4 16 9 10l3.5 3L20 5"/><path d="M14 5h6v6"/>'),
+  spread: icon('<path d="M12 20V9M12 9 6 5M12 9l6-4"/>'),
+  damage: icon('<path d="m12 3 2 6.2L20.5 12 14 14.8 12 21l-2-6.2L3.5 12 10 9.2z"/>'),
+  laser: icon('<path d="M3 12h18M8 8 6 12l2 4M16 8l2 4-2 4"/>'),
+  missile: icon('<path d="M12 3.5 14.5 9 12 11 9.5 9zM12 11v9M8.5 16.5 12 20l3.5-3.5"/>'),
+  emp: icon('<circle cx="12" cy="12" r="2.4"/><path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3M6 6l2 2M16 16l2 2M18 6l-2 2M8 16l-2 2"/>'),
+}
+
+const UPGRADE_ICON: Record<UpgradeId, string> = {
+  rate: ICO.rate,
+  spread: ICO.spread,
+  damage: ICO.damage,
+}
+
+function formatDay(iso: string): string {
+  const parts = iso.split('-')
+  const month = Number(parts[1])
+  const day = Number(parts[2])
+  if (!month || !day || month > 12) return iso
+  return `${MONTHS[month - 1]} ${day}`
+}
+
+function finePointer(): boolean {
+  return window.matchMedia('(hover: hover) and (pointer: fine)').matches
+}
+
 export function mountUi(root: HTMLElement): void {
+  const touchUi = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0
+  document.body.classList.toggle('touch-ui', touchUi)
+
   root.innerHTML = `
     <div id="hurt"></div>
     <div id="flash"></div>
     <div id="vignette"></div>
     <div id="hud" hidden>
       <div class="hud-top">
-        <div class="stat">
+        <div class="stat score-stat">
           <span class="k">Score</span>
           <span class="v" id="score">0</span>
           <span class="best-flag" id="best-flag" hidden>Best</span>
@@ -29,8 +75,11 @@ export function mountUi(root: HTMLElement): void {
           <span class="v" id="combo">x1</span>
         </div>
         <div class="stat" id="coin-stat"><span class="k">Coins</span><span class="v" id="coins">0</span></div>
-        <button type="button" class="hud-btn" id="auto-btn" aria-pressed="false">Auto</button>
-        <button type="button" class="hud-btn icon" id="mute-btn" aria-pressed="false" aria-label="Mute sound"></button>
+        <div class="hud-actions">
+          <button type="button" class="hud-btn icon" id="auto-btn" aria-pressed="false" aria-label="Auto-fire">${ICO.cross}</button>
+          <button type="button" class="hud-btn icon" id="mute-btn" aria-pressed="false" aria-label="Mute sound">${ICO.sound}</button>
+          <button type="button" class="hud-btn icon" id="pause-btn" aria-label="Pause">${ICO.pause}</button>
+        </div>
       </div>
       <div class="hp-row">
         <span class="k">City</span>
@@ -40,31 +89,75 @@ export function mountUi(root: HTMLElement): void {
       <div id="banner"></div>
       <div id="tutorial" hidden>
         <p id="tutorial-text"></p>
-        <button type="button" id="skip-tutorial">Skip</button>
+        <button type="button" class="ghost" id="skip-tutorial">Skip</button>
       </div>
     </div>
-    <section class="overlay" id="menu">
-      <div class="panel">
-        <p class="eyebrow">Close-in battery</p>
-        <h1 id="title"></h1>
-        <p class="tag">Hold the skyline.</p>
+    <section class="overlay menu-screen" id="menu">
+      <button type="button" class="icon-btn corner-gear" id="menu-gear" aria-expanded="false" aria-controls="settings-sheet" aria-label="Settings">${ICO.gear}</button>
+      <div class="sheet settings-sheet" id="settings-sheet" hidden role="dialog" aria-label="Settings">
+        <button type="button" class="toggle" id="menu-mute" aria-pressed="true">
+          <span class="toggle-ico" aria-hidden="true">${ICO.sound}</span>
+          <span class="toggle-name">Sound</span>
+          <span class="toggle-state">On</span>
+        </button>
+        <button type="button" class="toggle" id="menu-haptics" aria-pressed="true">
+          <span class="toggle-ico" aria-hidden="true">${ICO.haptic}</span>
+          <span class="toggle-name">Haptics</span>
+          <span class="toggle-state">On</span>
+        </button>
+        <button type="button" class="toggle" id="menu-auto" aria-pressed="false">
+          <span class="toggle-ico" aria-hidden="true">${ICO.cross}</span>
+          <span class="toggle-name">Auto-fire</span>
+          <span class="toggle-state">Off</span>
+        </button>
+      </div>
+      <div class="menu-cluster">
+        <div class="menu-brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64">
+              <circle class="ring" cx="32" cy="32" r="16"/>
+              <path class="ticks" d="M32 8v8M32 48v8M8 32h8M48 32h8"/>
+              <circle class="dot" cx="32" cy="32" r="3"/>
+            </svg>
+          </div>
+          <p class="eyebrow">Close-in battery</p>
+          <h1 class="logo" id="title"><span id="title-a"></span><span id="title-b"></span></h1>
+          <p class="tag">Hold the skyline.</p>
+          <p class="keys keys-desktop">Space fires · F auto-fire · M mute</p>
+        </div>
+        <button type="button" class="primary play-btn" id="campaign">
+          <span class="play-kicker">Campaign</span>
+          <span class="play-label">Play</span>
+        </button>
+        <div class="mode-row">
+          <button type="button" class="mode-card" id="endless">
+            <span class="mode-ico" aria-hidden="true">${ICO.endless}</span>
+            <span class="mode-name">Endless</span>
+            <span class="mode-sub"><span class="mode-line">Best <strong id="menu-best">0</strong></span></span>
+          </button>
+          <button type="button" class="mode-card" id="daily">
+            <span class="mode-ico" aria-hidden="true">${ICO.daily}</span>
+            <span class="mode-name">Daily</span>
+            <span class="mode-sub" id="menu-daily"><span id="menu-daily-date">—</span><span id="menu-daily-best">Best —</span></span>
+          </button>
+          <button type="button" class="mode-card" id="armoury">
+            <span class="mode-ico" aria-hidden="true">${ICO.armoury}</span>
+            <span class="mode-name">Armoury</span>
+            <span class="mode-sub">Weapons and ranks</span>
+          </button>
+        </div>
+        <button type="button" class="text-btn" id="howto-open" aria-expanded="false" aria-controls="howto-sheet">How to play</button>
+      </div>
+      <div class="sheet howto-sheet" id="howto-sheet" hidden role="dialog" aria-label="How to play">
+        <p class="eyebrow">Field notes</p>
+        <h2>How to play</h2>
         <ul class="howto">
           <li>Aim with the pointer. Hold to fire, or switch on auto-fire.</li>
           <li>Drones weave. Missiles dive. Swarms split.</li>
           <li>Clear a wave, then pick one upgrade. They stack.</li>
         </ul>
         <p class="keys">Space fires · F auto-fire · M mute</p>
-        <p class="best-line">Endless best <strong id="menu-best">0</strong></p>
-        <p class="best-line">Daily <strong id="menu-daily">—</strong></p>
-        <div class="stack">
-          <button type="button" class="primary" id="campaign">Campaign</button>
-          <button type="button" class="ghost" id="endless">Endless</button>
-          <button type="button" class="ghost" id="daily">Daily challenge</button>
-          <button type="button" class="ghost" id="armoury">Armoury</button>
-          <button type="button" class="ghost" id="menu-auto" aria-pressed="false">Auto-fire off</button>
-          <button type="button" class="ghost" id="menu-mute" aria-pressed="false">Sound on</button>
-          <button type="button" class="ghost" id="menu-haptics" aria-pressed="true">Haptics on</button>
-        </div>
+        <button type="button" class="ghost" id="howto-close">Close</button>
       </div>
     </section>
     <section class="overlay" id="map" hidden>
@@ -109,6 +202,17 @@ export function mountUi(root: HTMLElement): void {
         <div class="choices" id="choices"></div>
       </div>
     </section>
+    <section class="overlay" id="pause" hidden>
+      <div class="panel">
+        <p class="eyebrow">Battery hold</p>
+        <h2>Paused</h2>
+        <p class="sub">The sky waits.</p>
+        <div class="stack">
+          <button type="button" class="primary" id="resume">Resume</button>
+          <button type="button" class="ghost" id="pause-menu">Menu</button>
+        </div>
+      </div>
+    </section>
     <section class="overlay" id="over" hidden>
       <div class="panel">
         <p class="eyebrow">Game over</p>
@@ -128,8 +232,15 @@ export function mountUi(root: HTMLElement): void {
     </section>
   `
 
-  const title = root.querySelector('#title')
-  if (title) title.textContent = GAME_TITLE
+  const titleA = root.querySelector('#title-a')
+  const titleB = root.querySelector('#title-b')
+  const splitAt = GAME_TITLE.indexOf(' ')
+  if (titleA && titleB && splitAt > 0) {
+    titleA.textContent = GAME_TITLE.slice(0, splitAt)
+    titleB.textContent = GAME_TITLE.slice(splitAt + 1)
+  } else if (titleA) {
+    titleA.textContent = GAME_TITLE
+  }
 
   const choices = root.querySelector('#choices')
   if (choices) {
@@ -140,13 +251,13 @@ export function mountUi(root: HTMLElement): void {
       button.dataset.id = upgrade.id
       button.innerHTML = `
         <span class="choice-kicker"></span>
-        <span class="choice-name">${upgrade.name}</span>
+        <span class="choice-name">${UPGRADE_ICON[upgrade.id]}${upgrade.name}</span>
         <span class="choice-blurb">${upgrade.blurb}</span>
         <span class="choice-stat"></span>
       `
       button.addEventListener('click', () => {
         audio.unlock()
-        emitCommand({ type: 'upgrade', id: upgrade.id as UpgradeId })
+        emitCommand({ type: 'upgrade', id: upgrade.id })
       })
       choices.appendChild(button)
     }
@@ -156,26 +267,69 @@ export function mountUi(root: HTMLElement): void {
   const share = root.querySelector<HTMLButtonElement>('#share')
   const menuAuto = root.querySelector<HTMLButtonElement>('#menu-auto')
   const menuMute = root.querySelector<HTMLButtonElement>('#menu-mute')
+  const menuHaptics = root.querySelector<HTMLButtonElement>('#menu-haptics')
   const autoBtn = root.querySelector<HTMLButtonElement>('#auto-btn')
   const muteBtn = root.querySelector<HTMLButtonElement>('#mute-btn')
+  const pauseBtn = root.querySelector<HTMLButtonElement>('#pause-btn')
   const note = root.querySelector<HTMLElement>('#share-note')
   const fallback = root.querySelector<HTMLInputElement>('#share-fallback')
+  const gear = root.querySelector<HTMLButtonElement>('#menu-gear')
+  const settings = root.querySelector<HTMLElement>('#settings-sheet')
+  const howtoOpen = root.querySelector<HTMLButtonElement>('#howto-open')
+  const howto = root.querySelector<HTMLElement>('#howto-sheet')
+  const campaignBtn = root.querySelector<HTMLButtonElement>('#campaign')
+  const endlessBtn = root.querySelector<HTMLButtonElement>('#endless')
+
+  const setSheet = (sheet: HTMLElement | null, open: boolean, toggle?: HTMLButtonElement | null): void => {
+    if (sheet) sheet.hidden = !open
+    toggle?.setAttribute('aria-expanded', open ? 'true' : 'false')
+  }
 
   let shopReturn: 'menu' | 'map' = 'menu'
-  const play = root.querySelector<HTMLButtonElement>('#endless')
-  root.querySelector('#campaign')?.addEventListener('click', () => {
+  const closeSheets = (): void => {
+    setSheet(settings, false, gear)
+    setSheet(howto, false, howtoOpen)
+  }
+
+  gear?.addEventListener('click', (event) => {
+    event.stopPropagation()
+    const open = settings?.hidden !== false
+    setSheet(settings, open, gear)
+    setSheet(howto, false, howtoOpen)
+  })
+  howtoOpen?.addEventListener('click', (event) => {
+    event.stopPropagation()
+    const open = howto?.hidden !== false
+    setSheet(howto, open, howtoOpen)
+    setSheet(settings, false, gear)
+  })
+  root.querySelector('#howto-close')?.addEventListener('click', () => setSheet(howto, false, howtoOpen))
+
+  const menu = root.querySelector<HTMLElement>('#menu')
+  menu?.addEventListener('click', (event) => {
+    const target = event.target
+    if (!(target instanceof Node)) return
+    if (settings && !settings.hidden && !gear?.contains(target) && !settings.contains(target)) setSheet(settings, false, gear)
+    if (howto && !howto.hidden && !howtoOpen?.contains(target) && !howto.contains(target)) setSheet(howto, false, howtoOpen)
+  })
+
+  campaignBtn?.addEventListener('click', () => {
+    closeSheets()
     audio.unlock()
     emitCommand({ type: 'open-map' })
   })
-  play?.addEventListener('click', () => {
+  endlessBtn?.addEventListener('click', () => {
+    closeSheets()
     audio.unlock()
     emitCommand({ type: 'start-endless' })
   })
   root.querySelector('#daily')?.addEventListener('click', () => {
+    closeSheets()
     audio.unlock()
     emitCommand({ type: 'start-daily' })
   })
   root.querySelector('#armoury')?.addEventListener('click', () => {
+    closeSheets()
     shopReturn = 'menu'
     audio.unlock()
     emitCommand({ type: 'open-armoury' })
@@ -194,7 +348,13 @@ export function mountUi(root: HTMLElement): void {
   })
   root.querySelector('#clear-map')?.addEventListener('click', () => emitCommand({ type: 'to-map' }))
   root.querySelector('#skip-tutorial')?.addEventListener('click', () => emitCommand({ type: 'skip-tutorial' }))
-  root.querySelector('#menu-haptics')?.addEventListener('click', () => emitCommand({ type: 'toggle-haptics' }))
+  menuHaptics?.addEventListener('click', () => emitCommand({ type: 'toggle-haptics' }))
+  pauseBtn?.addEventListener('click', () => emitCommand({ type: 'pause' }))
+  root.querySelector('#resume')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'resume' })
+  })
+  root.querySelector('#pause-menu')?.addEventListener('click', () => emitCommand({ type: 'back-menu' }))
   wireWeapons(root)
   restart?.addEventListener('click', () => {
     audio.unlock()
@@ -218,18 +378,13 @@ export function mountUi(root: HTMLElement): void {
     })
   }
 
-  muteBtn?.insertAdjacentHTML(
-    'beforeend',
-    `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path class="wave" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/></svg>`,
-  )
-
   let latest: Snapshot | null = null
   let phase: Snapshot['phase'] | null = null
-  const menu = root.querySelector<HTMLElement>('#menu')
   const map = root.querySelector<HTMLElement>('#map')
   const shop = root.querySelector<HTMLElement>('#shop')
   const clear = root.querySelector<HTMLElement>('#clear')
   const upgrade = root.querySelector<HTMLElement>('#upgrade')
+  const pause = root.querySelector<HTMLElement>('#pause')
   const over = root.querySelector<HTMLElement>('#over')
   const hud = root.querySelector<HTMLElement>('#hud')
   const tutorial = root.querySelector<HTMLElement>('#tutorial')
@@ -242,6 +397,7 @@ export function mountUi(root: HTMLElement): void {
   const bestFlag = root.querySelector<HTMLElement>('#best-flag')
   const hurt = root.querySelector<HTMLElement>('#hurt')
   const vignette = root.querySelector<HTMLElement>('#vignette')
+  const resumeBtn = root.querySelector<HTMLButtonElement>('#resume')
 
   const seen = {
     score: '',
@@ -254,6 +410,7 @@ export function mountUi(root: HTMLElement): void {
     bestFlag: false,
     low: false,
     hurt: '',
+    paused: false,
   }
 
   onView((snapshot) => {
@@ -269,23 +426,31 @@ export function mountUi(root: HTMLElement): void {
       const showHud = snapshot.phase === 'playing' || snapshot.phase === 'upgrade' || snapshot.phase === 'clear' || snapshot.phase === 'gameover'
       if (hud) hud.hidden = !showHud
       document.body.classList.toggle('is-playing', snapshot.phase === 'playing')
+      if (snapshot.phase === 'menu') closeSheets()
       if (snapshot.phase === 'map') fillMap(root)
       if (snapshot.phase === 'armoury') fillShop(root)
       if (snapshot.phase === 'clear') fillClear(root, snapshot)
       if (snapshot.phase === 'gameover' && snapshot.mode === 'daily') void showDailyCard(root, snapshot)
-      if (snapshot.phase === 'menu') play?.focus()
+      if (snapshot.phase === 'menu' && finePointer()) campaignBtn?.focus()
       if (snapshot.phase === 'upgrade') {
         fillUpgrades(root, snapshot)
-        root.querySelector<HTMLButtonElement>('.choice')?.focus()
+        if (finePointer()) root.querySelector<HTMLButtonElement>('#choices .choice')?.focus()
       }
       if (snapshot.phase === 'gameover') {
         fillGameOver(root, snapshot)
         if (note) note.textContent = ''
         if (fallback) fallback.hidden = true
-        restart?.focus()
+        if (finePointer()) restart?.focus()
       }
     } else if (snapshot.phase === 'upgrade') {
       fillUpgrades(root, snapshot)
+    }
+
+    if (pauseBtn) pauseBtn.hidden = snapshot.phase !== 'playing'
+    const showPause = snapshot.paused && snapshot.phase === 'playing'
+    if (pause && pause.hidden === showPause) {
+      pause.hidden = !showPause
+      if (showPause && finePointer()) resumeBtn?.focus()
     }
 
     const scoreText = formatInt(snapshot.score)
@@ -346,12 +511,14 @@ export function mountUi(root: HTMLElement): void {
     }
     const menuBest = root.querySelector('#menu-best')
     if (menuBest && snapshot.phase === 'menu') menuBest.textContent = formatInt(snapshot.best)
-    const dailyLine = root.querySelector('#menu-daily')
-    if (dailyLine && snapshot.phase === 'menu') {
+    const dailyDate = root.querySelector('#menu-daily-date')
+    const dailyBest = root.querySelector('#menu-daily-best')
+    if (dailyDate && dailyBest && snapshot.phase === 'menu') {
       const save = loadSave()
       const date = todayKey()
       const best = save.dailyBest[date]
-      dailyLine.textContent = best ? `${date} best ${formatInt(best)}` : date
+      dailyDate.textContent = formatDay(date)
+      dailyBest.textContent = best ? `Best ${formatInt(best)}` : 'Best —'
     }
     const coinsEl = root.querySelector('#coins')
     if (coinsEl) coinsEl.textContent = formatInt(snapshot.coins)
@@ -360,13 +527,7 @@ export function mountUi(root: HTMLElement): void {
       const text = root.querySelector('#tutorial-text')
       if (text) text.textContent = snapshot.tutorial
     }
-    const haptics = root.querySelector<HTMLButtonElement>('#menu-haptics')
-    if (haptics) {
-      const on = loadSave().haptics
-      haptics.textContent = on ? 'Haptics on' : 'Haptics off'
-      haptics.classList.toggle('on', on)
-      haptics.setAttribute('aria-pressed', on ? 'true' : 'false')
-    }
+    if (menuHaptics) setHaptics(menuHaptics, loadSave().haptics)
     if (snapshot.phase === 'armoury') {
       const shopKey = `${snapshot.coins}:${snapshot.weapon}:${snapshot.ownedLaser}:${snapshot.ownedMissile}:${snapshot.ownedEmp}`
       if (shopKey !== root.dataset.shop) {
@@ -390,6 +551,10 @@ export function mountUi(root: HTMLElement): void {
       event.preventDefault()
       audio.unlock()
       emitCommand({ type: 'toggle-autofire' })
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      if (latest?.paused) emitCommand({ type: 'resume' })
+      else if (latest?.phase === 'playing') emitCommand({ type: 'pause' })
     } else if (event.key === '1') emitCommand({ type: 'equip', id: 'cannon' })
     else if (event.key === '2') emitCommand({ type: 'equip', id: 'laser' })
     else if (event.key === '3') emitCommand({ type: 'equip', id: 'missile' })
@@ -451,9 +616,11 @@ function fillMap(root: HTMLElement): void {
     button.className = 'node'
     const locked = level.id > save.unlocked
     if (locked) button.classList.add('locked')
+    if (level.boss !== 'none') button.classList.add('boss')
     const stars = save.stars[level.id] ?? 0
     button.disabled = locked
-    button.innerHTML = `<span class="k">${level.id}</span><strong>${level.name}</strong><span>${locked ? 'Locked' : '★★★'.slice(0, stars) + '☆☆☆'.slice(stars)}</span>`
+    const starText = locked ? 'Locked' : '★★★'.slice(0, stars) + '☆☆☆'.slice(stars)
+    button.innerHTML = `<span class="k">${level.id}</span><strong>${level.name}</strong><span class="stars">${starText}</span>`
     button.addEventListener('click', () => {
       audio.unlock()
       emitCommand({ type: 'start-level', id: level.id })
@@ -470,10 +637,10 @@ function fillShop(root: HTMLElement): void {
   const ranks = root.querySelector('#shop-ranks')
   if (!weapons || !ranks) return
   weapons.replaceChildren()
-  const list: { id: 'laser' | 'missile' | 'emp'; name: string }[] = [
-    { id: 'laser', name: 'Laser' },
-    { id: 'missile', name: 'Missile battery' },
-    { id: 'emp', name: 'EMP' },
+  const list: { id: 'laser' | 'missile' | 'emp'; name: string; ico: string }[] = [
+    { id: 'laser', name: 'Laser', ico: ICO.laser },
+    { id: 'missile', name: 'Missile battery', ico: ICO.missile },
+    { id: 'emp', name: 'EMP', ico: ICO.emp },
   ]
   for (const item of list) {
     const owned = save.owned[item.id]
@@ -481,7 +648,7 @@ function fillShop(root: HTMLElement): void {
     button.type = 'button'
     button.className = 'choice'
     const cost = SHOP.unlock[item.id]
-    button.innerHTML = `<span class="choice-name">${item.name}</span><span class="choice-stat">${owned ? (save.equipped === item.id ? 'Equipped' : 'Equip') : `${cost} coins`}</span>`
+    button.innerHTML = `<span class="choice-name">${item.ico}${item.name}</span><span class="choice-stat">${owned ? (save.equipped === item.id ? 'Equipped' : 'Equip') : `${cost} coins`}</span>`
     button.addEventListener('click', () => {
       audio.unlock()
       emitCommand({ type: 'buy-weapon', id: item.id })
@@ -497,7 +664,7 @@ function fillShop(root: HTMLElement): void {
     button.type = 'button'
     button.className = 'choice'
     button.disabled = rank >= SHOP.maxRank
-    button.innerHTML = `<span class="choice-name">${names[id]}</span><span class="choice-stat">${rank >= SHOP.maxRank ? 'Max' : `Lv ${rank} · ${rankCost(rank)} coins`}</span>`
+    button.innerHTML = `<span class="choice-name">${UPGRADE_ICON[id]}${names[id]}</span><span class="choice-stat">${rank >= SHOP.maxRank ? 'Max' : `Lv ${rank} · ${rankCost(rank)} coins`}</span>`
     button.addEventListener('click', () => {
       audio.unlock()
       emitCommand({ type: 'buy-rank', id })
@@ -539,30 +706,48 @@ async function showDailyCard(root: HTMLElement, snapshot: Snapshot): Promise<voi
   }
 }
 
-function setAuto(button: HTMLButtonElement | null, on: boolean, long: boolean): void {
+function setAuto(button: HTMLButtonElement | null, on: boolean, labeled: boolean): void {
   if (!button) return
   button.setAttribute('aria-pressed', on ? 'true' : 'false')
   button.classList.toggle('on', on)
-  button.textContent = long ? (on ? 'Auto-fire on' : 'Auto-fire off') : 'Auto'
+  button.setAttribute('aria-label', on ? 'Auto-fire on' : 'Auto-fire off')
+  if (!labeled) return
+  const state = button.querySelector('.toggle-state')
+  if (state) state.textContent = on ? 'On' : 'Off'
 }
 
-function setMute(button: HTMLButtonElement | null, muted: boolean, long: boolean): void {
+function setMute(button: HTMLButtonElement | null, muted: boolean, menu: boolean): void {
   if (!button) return
+  if (menu) {
+    const on = !muted
+    button.setAttribute('aria-pressed', on ? 'true' : 'false')
+    button.classList.toggle('on', on)
+    button.setAttribute('aria-label', on ? 'Sound on' : 'Sound off')
+    const state = button.querySelector('.toggle-state')
+    if (state) state.textContent = on ? 'On' : 'Off'
+    return
+  }
   button.setAttribute('aria-pressed', muted ? 'true' : 'false')
   button.classList.toggle('on', muted)
-  if (long) button.textContent = muted ? 'Sound off' : 'Sound on'
-  else button.setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound')
+  button.setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound')
+}
+
+function setHaptics(button: HTMLButtonElement, on: boolean): void {
+  button.setAttribute('aria-pressed', on ? 'true' : 'false')
+  button.classList.toggle('on', on)
+  button.setAttribute('aria-label', on ? 'Haptics on' : 'Haptics off')
+  const state = button.querySelector('.toggle-state')
+  if (state) state.textContent = on ? 'On' : 'Off'
 }
 
 function fillUpgrades(root: HTMLElement, snapshot: Snapshot): void {
   const sub = root.querySelector('#upgrade-sub')
   if (sub) {
-    const repair =
-      snapshot.repair > 0 ? `Crews restore ${snapshot.repair} integrity. ` : 'Integrity is full. '
+    const repair = snapshot.repair > 0 ? `Crews restore ${snapshot.repair} integrity. ` : 'Integrity is full. '
     const bonus = snapshot.cleanBonus > 0 ? `Clean sky +${formatInt(snapshot.cleanBonus)}. ` : ''
     sub.textContent = `${bonus}${repair}Wave ${snapshot.wave + 1} is next.`
   }
-  const buttons = root.querySelectorAll<HTMLButtonElement>('.choice')
+  const buttons = root.querySelectorAll<HTMLButtonElement>('#choices .choice')
   buttons.forEach((button) => {
     const id = button.dataset.id
     const kicker = button.querySelector('.choice-kicker')
@@ -593,7 +778,12 @@ function fillGameOver(root: HTMLElement, snapshot: Snapshot): void {
   if (score) score.textContent = formatInt(snapshot.score)
   if (detail) {
     const wave = `Wave ${Math.max(1, snapshot.wave)} · ${formatInt(snapshot.kills)} intercepts`
-    detail.textContent = snapshot.mode === 'daily' ? `${snapshot.dailyDate} · ${wave}` : snapshot.mode === 'campaign' ? `${snapshot.levelName} · ${wave}` : wave
+    detail.textContent =
+      snapshot.mode === 'daily'
+        ? `${snapshot.dailyDate} · ${wave}`
+        : snapshot.mode === 'campaign'
+          ? `${snapshot.levelName} · ${wave}`
+          : wave
   }
   if (best) best.textContent = formatInt(snapshot.best)
   if (badge) badge.hidden = !snapshot.newBest

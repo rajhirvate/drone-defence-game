@@ -21,7 +21,7 @@ import {
   type WeaponId,
 } from '../config'
 import { dailyRand, todayKey } from '../daily'
-import { paintAction, paintBackdrop, type ActionFrame, type BackdropFrame } from '../draw'
+import { paintAction, paintBackdrop, type ActionFrame, type BackdropFrame, type Beam } from '../draw'
 import { armArmour, armCarrier, armDrone, armFlyby, armMissile, armShard, armSwarm, makeEnemy, retune, stepEnemy } from '../entities/enemy'
 import { clamp, clampAim, lerpAngle, mulberry32 } from '../math'
 import { buildSkyline, roofAt, type Building, type Skyline } from '../skyline'
@@ -128,6 +128,8 @@ export class PlayScene extends Phaser.Scene {
   private runCoins = 0
   private clearStars = 0
   private clearCoins = 0
+  private paused = false
+  private beams: Beam[] = []
   private readonly view: Snapshot = blankSnapshot()
   private offCommand: (() => void) | null = null
 
@@ -199,6 +201,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    if (this.paused && this.phase === 'playing') return
     const dt = Math.min(0.033, delta / 1000)
     this.clock += dt
     if (this.hitStop > 0) this.hitStop = Math.max(0, this.hitStop - dt)
@@ -237,7 +240,7 @@ export class PlayScene extends Phaser.Scene {
 
     const idle = this.phase === 'menu' || this.phase === 'map' || this.phase === 'armoury'
     if (idle) {
-      this.aim = -Math.PI / 2 + Math.sin(this.clock * 0.7) * 0.95
+      this.aimAttract()
       this.updateAttract(dt)
     } else if (this.phase === 'playing') {
       this.updateCombat(sim, firing)
@@ -278,16 +281,25 @@ export class PlayScene extends Phaser.Scene {
         break
       case 'open-map':
       case 'to-map':
+        this.paused = false
         this.phase = 'map'
         this.deactivateAll()
         break
       case 'open-armoury':
+        this.paused = false
         this.phase = 'armoury'
         this.deactivateAll()
         break
       case 'back-menu':
+        this.paused = false
         this.phase = 'menu'
         this.deactivateAll()
+        break
+      case 'pause':
+        if (this.phase === 'playing') this.paused = true
+        break
+      case 'resume':
+        this.paused = false
         break
       case 'equip':
         if (this.save.owned[command.id]) {
@@ -334,6 +346,7 @@ export class PlayScene extends Phaser.Scene {
 
   private beginRun(): void {
     if (this.phase === 'playing') return
+    this.paused = false
     audio.unlock()
     audio.play('ui')
     this.score = 0
@@ -481,6 +494,7 @@ export class PlayScene extends Phaser.Scene {
       this.flybyCount++
       const pop = stepEnemy(e, dt, world)
       if (pop) {
+        this.fireAttractBeam(e.x, e.y)
         this.burst(e.x, e.y, 'drone', false)
         e.active = false
       }
@@ -488,9 +502,64 @@ export class PlayScene extends Phaser.Scene {
     if (this.attractT <= 0 && this.flybyCount < 3) {
       const e = this.takeEnemy()
       if (e) armFlyby(e, this.viewW, this.viewH, this.unit)
-      this.attractT = 1.6 + Math.random() * 1.8
+      this.attractT = this.reduce ? 2.6 : 1.35 + Math.random() * 1.2
     }
+    this.tickBeams(dt)
     this.decayFx(dt)
+  }
+
+  private aimAttract(): void {
+    let target: Enemy | null = null
+    let best = Infinity
+    const pivotX = this.turretX
+    const pivotY = this.turretY - this.unit * 16
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i]
+      if (!e.active || !e.attract) continue
+      const dx = e.x - pivotX
+      const dy = e.y - pivotY
+      const dist = dx * dx + dy * dy
+      if (dist < best) {
+        best = dist
+        target = e
+      }
+    }
+    if (target) {
+      this.aim = clampAim(Math.atan2(target.y - pivotY, target.x - pivotX), BALANCE.aimMin, BALANCE.aimMax)
+      return
+    }
+    if (this.reduce) {
+      this.aim = -Math.PI / 2
+      return
+    }
+    this.aim = -Math.PI / 2 + Math.sin(this.clock * 0.55) * 0.8
+  }
+
+  private fireAttractBeam(x: number, y: number): void {
+    const pivotX = this.turretX
+    const pivotY = this.turretY - this.unit * 16
+    const angle = Math.atan2(y - pivotY, x - pivotX)
+    const aim = clampAim(angle, BALANCE.aimMin, BALANCE.aimMax)
+    this.aim = aim
+    this.aimDisplay = aim
+    const c = Math.cos(aim)
+    const s = Math.sin(aim)
+    const tipX = pivotX + c * this.barrel
+    const tipY = pivotY + s * this.barrel
+    this.muzzle = 0.07
+    if (this.reduce) return
+    this.beams.push({ x1: tipX, y1: tipY, x2: x, y2: y, life: 0.18, max: 0.18 })
+    if (this.beams.length > 4) this.beams.shift()
+  }
+
+  private tickBeams(dt: number): void {
+    let write = 0
+    for (let i = 0; i < this.beams.length; i++) {
+      const beam = this.beams[i]
+      beam.life -= dt
+      if (beam.life > 0) this.beams[write++] = beam
+    }
+    this.beams.length = write
   }
 
   private spawnDue(): void {
@@ -1099,6 +1168,8 @@ export class PlayScene extends Phaser.Scene {
       laserY: this.laserY,
       muzzleX: this.muzzleX,
       muzzleY: this.muzzleY,
+      reduceMotion: this.reduce,
+      beams: this.beams,
     }
     paintAction(this.fx, frame)
   }
@@ -1148,6 +1219,7 @@ export class PlayScene extends Phaser.Scene {
     v.flash = this.flash
     v.dailyDate = this.dailyDate
     v.dailyBest = this.save.dailyBest[this.dailyDate] ?? 0
+    v.paused = this.paused
     if (this.mode === 'endless') v.best = this.save.bestEndless
     emitView(v)
   }
@@ -1333,6 +1405,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private deactivateAll(): void {
+    this.beams.length = 0
     for (let i = 0; i < this.enemies.length; i++) this.enemies[i].active = false
     for (let i = 0; i < this.bullets.length; i++) this.bullets[i].active = false
     for (let i = 0; i < this.particles.length; i++) this.particles[i].active = false

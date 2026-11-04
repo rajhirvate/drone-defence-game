@@ -209,10 +209,10 @@ export function armFlyby(e: Enemy, w: number, h: number, unit: number): void {
   e.score = 0
   e.city = 0
   e.x = -40
-  e.y = h * (0.12 + Math.random() * 0.32)
+  e.y = h * (0.14 + Math.random() * 0.22)
   e.phase = Math.random() * Math.PI * 2
   e.freq = 1.4
-  e.scriptKill = Math.random() < 0.62
+  e.scriptKill = true
   e.killX = w * (0.35 + Math.random() * 0.35)
   e.flash = 0
   e.seed = Math.random()

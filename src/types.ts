@@ -148,6 +148,7 @@ export interface Snapshot {
   flash: number
   dailyDate: string
   dailyBest: number
+  paused: boolean
 }
 
 export type Command =
@@ -168,6 +169,8 @@ export type Command =
   | { type: 'buy-rank'; id: UpgradeId }
   | { type: 'skip-tutorial' }
   | { type: 'to-map' }
+  | { type: 'pause' }
+  | { type: 'resume' }
 
 export function blankSnapshot(): Snapshot {
   return {
@@ -214,5 +217,6 @@ export function blankSnapshot(): Snapshot {
     flash: 0,
     dailyDate: '',
     dailyBest: 0,
+    paused: false,
   }
 }

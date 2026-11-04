@@ -52,6 +52,17 @@ export interface ActionFrame {
   laserY: number
   muzzleX: number
   muzzleY: number
+  reduceMotion: boolean
+  beams: readonly Beam[]
+}
+
+export interface Beam {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  life: number
+  max: number
 }
 
 export function paintBackdrop(g: Phaser.GameObjects.Graphics, f: BackdropFrame): void {
@@ -136,6 +147,8 @@ export function paintAction(g: Phaser.GameObjects.Graphics, f: ActionFrame): voi
     g.fillRect(s.fx * f.w, s.fy * f.h * 0.78, size, size)
   }
 
+  drawSkyBeams(g, f)
+
   for (let i = 0; i < f.markers.length; i++) {
     const m = f.markers[i]
     if (!m.active) continue
@@ -214,6 +227,53 @@ export function paintAction(g: Phaser.GameObjects.Graphics, f: ActionFrame): voi
     g.lineTo(x, y + s)
     g.strokePath()
     g.strokeCircle(x, y, s * 0.55)
+  }
+}
+
+function drawSkyBeams(g: Phaser.GameObjects.Graphics, f: ActionFrame): void {
+  const idle = f.phase === 'menu' || f.phase === 'map' || f.phase === 'armoury'
+  if (idle) {
+    const spots = [0.2, 0.56, 0.8]
+    const colors = [0xfff3c4, 0xfff3c4, 0x9af6ff]
+    for (let i = 0; i < spots.length; i++) {
+      const ox = f.w * spots[i]
+      let oy = f.groundY
+      const buildings = f.buildings
+      for (let b = 0; b < buildings.length; b++) {
+        const building = buildings[b]
+        if (ox >= building.x && ox <= building.x + building.w) oy = Math.min(oy, building.y)
+      }
+      const sweep = f.reduceMotion ? -0.18 + i * 0.16 : Math.sin(f.time * (0.42 + i * 0.07) + i * 1.8) * 0.66
+      const dir = -Math.PI / 2 + sweep
+      const len = f.h * 0.95
+      const spread = 0.1
+      const x1 = ox + Math.cos(dir - spread) * len
+      const y1 = oy + Math.sin(dir - spread) * len
+      const x2 = ox + Math.cos(dir + spread) * len
+      const y2 = oy + Math.sin(dir + spread) * len
+      g.fillStyle(colors[i], i === 2 ? 0.04 : 0.055)
+      g.fillTriangle(ox, oy, x1, y1, x2, y2)
+      g.lineStyle(Math.max(1, f.unit * 0.8), colors[i], 0.18)
+      g.beginPath()
+      g.moveTo(ox, oy)
+      g.lineTo(ox + Math.cos(dir) * len, oy + Math.sin(dir) * len)
+      g.strokePath()
+    }
+  }
+
+  const beams = f.beams
+  for (let i = 0; i < beams.length; i++) {
+    const beam = beams[i]
+    if (beam.life <= 0) continue
+    const alpha = Math.max(0, beam.life / beam.max)
+    g.lineStyle(Math.max(2, f.unit * 2.4), 0xd8fbff, 0.9 * alpha)
+    g.beginPath()
+    g.moveTo(beam.x1, beam.y1)
+    g.lineTo(beam.x2, beam.y2)
+    g.strokePath()
+    g.fillStyle(0xffffff, alpha)
+    const head = Math.max(2, f.unit * 2.6)
+    g.fillRect(beam.x2 - head, beam.y2 - head, head * 2, head * 2)
   }
 }
 
