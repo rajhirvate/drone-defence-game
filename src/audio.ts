@@ -3,7 +3,7 @@
  * No samples, no third-party audio. Original to this project.
  */
 
-type Kind = 'shot' | 'boom' | 'city' | 'ui' | 'wave' | 'upgrade' | 'clear' | 'over' | 'warn'
+type Kind = 'shot' | 'boom' | 'bigboom' | 'city' | 'ui' | 'wave' | 'upgrade' | 'clear' | 'over' | 'warn' | 'laser' | 'emp' | 'homing'
 
 export class AudioBus {
   private ctx: AudioContext | null = null
@@ -37,13 +37,34 @@ export class AudioBus {
     switch (kind) {
       case 'shot':
         if (!this.allow('shot', 38)) return
-        this.noiseBurst(0.045, 1400, 0.05, 'bandpass')
-        this.tone('triangle', 210, 70, 0.05, 0.045)
+        this.noiseBurst(0.02, 2400, 0.06, 'highpass')
+        this.noiseBurst(0.05, 480, 0.07, 'lowpass')
+        this.tone('triangle', 240, 70, 0.05, 0.05)
+        break
+      case 'homing':
+        if (!this.allow('homing', 80)) return
+        this.tone('sawtooth', 180, 90, 0.12, 0.04)
+        this.noiseBurst(0.08, 600, 0.05, 'bandpass')
+        break
+      case 'laser':
+        if (!this.allow('laser', 90)) return
+        this.tone('sine', 880, 740, 0.08, 0.03)
+        this.noiseBurst(0.06, 1800, 0.025, 'highpass')
+        break
+      case 'emp':
+        this.noiseBurst(0.28, 2400, 0.08, 'bandpass')
+        this.tone('sine', 220, 40, 0.32, 0.07)
         break
       case 'boom':
         if (!this.allow('boom', 55)) return
+        this.noiseBurst(0.05, 1800, 0.08, 'highpass')
         this.noiseBurst(0.22, 700, 0.16, 'lowpass')
         this.tone('sine', 150, 48, 0.22, 0.1)
+        break
+      case 'bigboom':
+        this.noiseBurst(0.08, 2000, 0.1, 'highpass')
+        this.noiseBurst(0.4, 320, 0.22, 'lowpass')
+        this.tone('sine', 90, 32, 0.45, 0.12)
         break
       case 'city':
         if (!this.allow('city', 80)) return

@@ -1,4 +1,4 @@
-import { BALANCE, hpFor } from '../config'
+import { BALANCE, BOSSES, hpFor } from '../config'
 import { clamp } from '../math'
 import { roofAt, type Building } from '../skyline'
 import type { Enemy } from '../types'
@@ -48,6 +48,7 @@ export function makeEnemy(): Enemy {
     scriptKill: false,
     killX: 0,
     seed: 0,
+    stun: 0,
   }
 }
 
@@ -222,8 +223,44 @@ export function armFlyby(e: Enemy, w: number, h: number, unit: number): void {
 }
 
 /** Returns true when a flyby should burst apart. */
+export function armCarrier(e: Enemy, o: ArmBase & { entryX: number }): void {
+  armDrone(e, o)
+  const spec = BOSSES.carrier
+  e.kind = 'carrier'
+  e.baseR = spec.radius
+  e.baseSpeed = spec.speed
+  e.baseAmp = 18
+  e.freq = 0.7
+  e.hp = spec.hp
+  e.maxHp = spec.hp
+  e.score = spec.score
+  e.city = spec.city
+  retune(e, o.unit)
+}
+
+export function armArmour(e: Enemy, o: ArmBase & { arc: boolean; arcAmp: number }): void {
+  armMissile(e, o)
+  const spec = BOSSES.armour
+  e.kind = 'armour'
+  e.baseR = spec.radius
+  e.baseSpeed = spec.speed
+  e.hp = spec.hp
+  e.maxHp = spec.hp
+  e.score = spec.score
+  e.city = spec.city
+  retune(e, o.unit)
+  if (o.arc) {
+    const dist = Math.hypot(o.targetX - o.x, o.targetY - o.y) || 1
+    e.duration = Math.max(3.2, dist / Math.max(1, e.speed))
+  }
+}
+
 export function stepEnemy(e: Enemy, dt: number, world: StepWorld): boolean {
   if (e.flash > 0) e.flash -= dt
+  if (e.stun > 0) {
+    e.stun -= dt
+    return false
+  }
   if (e.mode === 'flyby') {
     e.x += e.vx * dt
     e.phase += dt * e.freq

@@ -83,6 +83,62 @@ export function shellDamage(level: number): number {
   return 1 + level
 }
 
+export type WeaponId = 'cannon' | 'laser' | 'missile' | 'emp'
+
+export const WEAPONS = {
+  cannon: { name: 'Cannon', blurb: 'Rapid shells. Spread and damage ranks apply.' },
+  laser: { name: 'Laser', blurb: 'A continuous beam.', tick: 0.12, damage: 1.4, range: 920 },
+  missile: { name: 'Missile battery', blurb: 'Slow homing shells.', interval: 0.52, damage: 4, speed: 460, turn: 2.6 },
+  emp: { name: 'EMP', blurb: 'Stuns everything nearby.', cooldown: 7.2, radius: 230, stun: 2.3 },
+} as const
+
+export const SHOP = {
+  unlock: { laser: 40, missile: 70, emp: 90 } as Record<Exclude<WeaponId, 'cannon'>, number>,
+  rankBase: 25,
+  maxRank: 5,
+}
+
+export function rankCost(rank: number): number {
+  return SHOP.rankBase * (rank + 1)
+}
+
+export const COINS = {
+  drone: 4,
+  missile: 6,
+  swarm: 8,
+  shard: 2,
+  carrier: 20,
+  armour: 16,
+} as const
+
+export const STAR_RULE = { three: 0.7, two: 0.4 }
+
+export function starsFor(hp: number, max: number): number {
+  const ratio = max <= 0 ? 0 : hp / max
+  if (ratio >= STAR_RULE.three) return 3
+  if (ratio >= STAR_RULE.two) return 2
+  return 1
+}
+
+export const BOSSES = {
+  carrier: { hp: 26, speed: 32, radius: 34, score: 800, city: 22, launchEvery: 2.3 },
+  armour: { hp: 14, speed: 70, radius: 18, score: 700, city: 20 },
+} as const
+
+export const FEEL = {
+  hitStop: 0.055,
+  slowScale: 0.28,
+  slowTime: 0.5,
+  bossSlow: 0.8,
+} as const
+
+export const TUTORIAL = [
+  'Move the pointer to aim the barrel.',
+  'Hold to fire, or leave auto-fire on and steer.',
+  'Drop a drone before it touches a roof.',
+  'The city bar is the skyline. Do not let it empty.',
+] as const
+
 export function hpFor(kind: 'drone' | 'missile' | 'swarm' | 'shard', wave: number): number {
   const tier = Math.floor(Math.max(0, wave - 1) / 4)
   switch (kind) {
