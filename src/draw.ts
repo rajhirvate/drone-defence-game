@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { mixHex } from './math'
 import { type Building, type LitWindow } from './skyline'
 import type { Bullet, Enemy, Fire, Marker, Particle, Star } from './types'
+import type { MissileSkinId } from './config'
 
 const hexPts: { x: number; y: number }[] = [
   { x: 0, y: 0 },
@@ -54,6 +55,7 @@ export interface ActionFrame {
   muzzleY: number
   reduceMotion: boolean
   beams: readonly Beam[]
+  empPulses: readonly EmpPulseDraw[]
 }
 
 export interface Beam {
@@ -63,6 +65,15 @@ export interface Beam {
   y2: number
   life: number
   max: number
+}
+
+export interface EmpPulseDraw {
+  x: number
+  y: number
+  r: number
+  max: number
+  life: number
+  maxLife: number
 }
 
 export function paintBackdrop(g: Phaser.GameObjects.Graphics, f: BackdropFrame): void {
@@ -165,17 +176,11 @@ export function paintAction(g: Phaser.GameObjects.Graphics, f: ActionFrame): voi
   for (let i = 0; i < f.bullets.length; i++) {
     const b = f.bullets[i]
     if (!b.active) continue
-    const speed = Math.hypot(b.vx, b.vy) || 1
-    const trail = Math.max(18, f.unit * 48)
-    g.lineStyle(Math.max(2.5, f.unit * 3.2), b.flak ? 0xffe1a3 : 0xb8fbff, 0.95)
-    g.beginPath()
-    g.moveTo(b.x - (b.vx / speed) * trail, b.y - (b.vy / speed) * trail)
-    g.lineTo(b.x, b.y)
-    g.strokePath()
-    g.fillStyle(0xffffff, 1)
-    const head = Math.max(2, b.r)
-    g.fillRect(b.x - head, b.y - head, head * 2, head * 2)
+    if (b.homing) drawPlayerMissile(g, b, f.unit)
+    else drawShell(g, b, f.unit)
   }
+
+  drawEmpPulses(g, f)
 
   for (let i = 0; i < f.particles.length; i++) {
     const p = f.particles[i]
@@ -277,6 +282,97 @@ function drawSkyBeams(g: Phaser.GameObjects.Graphics, f: ActionFrame): void {
   }
 }
 
+function drawShell(g: Phaser.GameObjects.Graphics, b: Bullet, unit: number): void {
+  const speed = Math.hypot(b.vx, b.vy) || 1
+  const trail = Math.max(18, unit * 48)
+  g.lineStyle(Math.max(2.5, unit * 3.2), b.flak ? 0xffe1a3 : 0xb8fbff, 0.95)
+  g.beginPath()
+  g.moveTo(b.x - (b.vx / speed) * trail, b.y - (b.vy / speed) * trail)
+  g.lineTo(b.x, b.y)
+  g.strokePath()
+  g.fillStyle(0xffffff, 1)
+  const head = Math.max(2, b.r)
+  g.fillRect(b.x - head, b.y - head, head * 2, head * 2)
+}
+
+function drawPlayerMissile(g: Phaser.GameObjects.Graphics, b: Bullet, unit: number): void {
+  const speed = Math.hypot(b.vx, b.vy) || 1
+  const ux = b.vx / speed
+  const uy = b.vy / speed
+  const ang = Math.atan2(uy, ux)
+  const skin: MissileSkinId = b.skin
+  if (skin === 'flare') {
+    g.lineStyle(Math.max(5, unit * 7), 0xff6a2a, 0.45)
+    g.beginPath()
+    g.moveTo(b.x - ux * unit * 78, b.y - uy * unit * 78)
+    g.lineTo(b.x, b.y)
+    g.strokePath()
+    g.lineStyle(Math.max(2.5, unit * 3), 0xffe1a3, 0.95)
+    g.beginPath()
+    g.moveTo(b.x - ux * unit * 48, b.y - uy * unit * 48)
+    g.lineTo(b.x, b.y)
+    g.strokePath()
+    g.fillStyle(0xffb15a, 1)
+    diamond(g, b.x, b.y, Math.max(6, unit * 8), ang)
+    g.fillStyle(0xfff6d2, 1)
+    diamond(g, b.x - ux * unit * 4, b.y - uy * unit * 4, Math.max(3, unit * 3.5), ang)
+    return
+  }
+  if (skin === 'needle') {
+    g.lineStyle(Math.max(1.4, unit * 1.5), 0xf7fbff, 0.95)
+    g.beginPath()
+    g.moveTo(b.x - ux * unit * 110, b.y - uy * unit * 110)
+    g.lineTo(b.x, b.y)
+    g.strokePath()
+    g.fillStyle(0xffffff, 1)
+    quad(g, b.x - ux * unit * 8, b.y - uy * unit * 8, unit * 28, Math.max(2, unit * 2.2), ang)
+    g.fillStyle(0x9af6ff, 1)
+    diamond(g, b.x + ux * unit * 6, b.y + uy * unit * 6, Math.max(3, unit * 3), ang)
+    return
+  }
+  if (skin === 'comet') {
+    g.lineStyle(Math.max(3, unit * 3.4), 0xc9a6ff, 0.55)
+    g.beginPath()
+    g.moveTo(b.x - ux * unit * 64, b.y - uy * unit * 64)
+    g.lineTo(b.x, b.y)
+    g.strokePath()
+    for (let i = 1; i <= 4; i++) {
+      g.fillStyle(i % 2 === 0 ? 0xffb15a : 0xe4d8ff, 0.9 - i * 0.15)
+      const d = i * unit * 10
+      const s = Math.max(1.6, unit * (3.4 - i * 0.45))
+      g.fillCircle(b.x - ux * d, b.y - uy * d, s)
+    }
+    g.fillStyle(0x6a4cff, 1)
+    g.fillCircle(b.x, b.y, Math.max(4, unit * 5))
+    g.fillStyle(0xf4f1ea, 1)
+    g.fillCircle(b.x + ux * unit * 1.5, b.y + uy * unit * 1.5, Math.max(2, unit * 2.2))
+    return
+  }
+  g.lineStyle(Math.max(2.5, unit * 3.2), 0xb8fbff, 0.95)
+  g.beginPath()
+  g.moveTo(b.x - ux * unit * 48, b.y - uy * unit * 48)
+  g.lineTo(b.x, b.y)
+  g.strokePath()
+  g.fillStyle(0xffffff, 1)
+  diamond(g, b.x, b.y, Math.max(4, unit * 5), ang)
+  g.fillStyle(0x9af6ff, 1)
+  diamond(g, b.x - ux * unit * 3, b.y - uy * unit * 3, Math.max(2, unit * 2.4), ang)
+}
+
+function drawEmpPulses(g: Phaser.GameObjects.Graphics, f: ActionFrame): void {
+  const pulses = f.empPulses
+  for (let i = 0; i < pulses.length; i++) {
+    const pulse = pulses[i]
+    const alpha = Math.max(0.15, pulse.life / pulse.maxLife)
+    g.lineStyle(Math.max(3, f.unit * 4), 0x9af6ff, 0.9 * alpha)
+    g.strokeCircle(pulse.x, pulse.y, Math.max(4, pulse.r))
+    g.lineStyle(Math.max(1.5, f.unit * 2), 0xffb15a, 0.75 * alpha)
+    g.strokeCircle(pulse.x, pulse.y, Math.max(2, pulse.r * 0.86))
+    g.fillStyle(0x9af6ff, 0.08 * alpha)
+    g.fillCircle(pulse.x, pulse.y, Math.max(4, pulse.r))
+  }
+}
+
 function drawFire(g: Phaser.GameObjects.Graphics, fire: Fire, f: ActionFrame): void {
   const x = fire.fx * f.w
   let y = f.groundY
@@ -302,8 +398,10 @@ function drawEnemy(g: Phaser.GameObjects.Graphics, e: Enemy, time: number, unit:
   else if (e.kind === 'shard') drawShard(g, e, flash)
   else drawDrone(g, e, flash, unit)
   if (e.stun > 0) {
-    g.lineStyle(Math.max(1, unit), 0x9af6ff, 0.8)
-    g.strokeCircle(e.x, e.y, e.r + unit * 3)
+    g.lineStyle(Math.max(2, unit * 1.7), 0x9af6ff, 0.95)
+    g.strokeCircle(e.x, e.y, e.r + unit * 4)
+    g.lineStyle(Math.max(1, unit), 0xffb15a, 0.75)
+    g.strokeCircle(e.x, e.y, e.r + unit * 8)
   }
 
   const boss = e.kind === 'carrier' || e.kind === 'armour'
