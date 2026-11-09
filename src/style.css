@@ -283,6 +283,7 @@ body.is-playing #game canvas {
 
 .weapon-row .hud-btn {
   pointer-events: auto;
+  touch-action: manipulation;
   position: relative;
   width: auto;
   flex: 1 1 0;
