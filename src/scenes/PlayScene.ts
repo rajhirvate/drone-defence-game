@@ -24,7 +24,7 @@ import {
 } from '../config'
 import { dailyRand, todayKey } from '../daily'
 import { paintAction, paintBackdrop, type ActionFrame, type BackdropFrame, type Beam } from '../draw'
-import { empReach, ringReaches } from '../emp'
+import { empReach, inEmpRadius } from '../emp'
 import { armArmour, armCarrier, armDrone, armFlyby, armMissile, armShard, armSwarm, makeEnemy, retune, stepEnemy } from '../entities/enemy'
 import { clamp, clampAim, lerpAngle, mulberry32 } from '../math'
 import { buildSkyline, roofAt, type Building, type Skyline } from '../skyline'
@@ -137,6 +137,9 @@ export class PlayScene extends Phaser.Scene {
   private fireHold = 0
   private empSerial = 1
   private empPulses: { id: number; x: number; y: number; r: number; max: number; life: number; maxLife: number }[] = []
+  private lastEmpStruck: { kind: string; x: number; y: number; hpBefore: number; hp: number; stun: number }[] = []
+  private lastEmpOrigin = { x: 0, y: 0 }
+  private lastEmpRadius = 0
   private readonly view: Snapshot = blankSnapshot()
   private offCommand: (() => void) | null = null
 
@@ -315,7 +318,14 @@ export class PlayScene extends Phaser.Scene {
         this.paused = false
         break
       case 'fire-emp':
-        if (this.phase === 'playing' && this.weapon === 'emp') this.empQueued = true
+        if (this.phase === 'playing' && this.save.owned.emp) {
+          if (this.weapon !== 'emp') {
+            this.weapon = 'emp'
+            this.save.equipped = 'emp'
+            saveGame(this.save)
+          }
+          this.empQueued = true
+        }
         break
       case 'tap-fire':
         if (this.phase === 'playing' && this.weapon !== 'emp') this.fireHold = Math.max(this.fireHold, 0.22)
@@ -1268,6 +1278,7 @@ export class PlayScene extends Phaser.Scene {
     v.ownedSkinKey = (['flare', 'needle', 'comet'] as const).filter((id) => this.save.ownedSkins[id]).join(',')
     if (this.mode === 'endless') v.best = this.save.bestEndless
     emitView(v)
+    this.publishDebug()
   }
 
   private tickTutorial(dt: number): void {
@@ -1367,8 +1378,8 @@ export class PlayScene extends Phaser.Scene {
     if (this.phase !== 'playing' || this.empCd > 0 || this.weapon !== 'emp') return
     const y = this.turretY - this.unit * 16
     const radius = empReach(this.turretX, y, this.viewW, this.viewH, this.unit, WEAPONS.emp.radius)
-    const life = this.reduce ? 0.12 : 0.85
-    this.empPulses.push({
+    const life = this.reduce ? 0.16 : 0.7
+    const pulse = {
       id: this.empSerial++,
       x: this.turretX,
       y,
@@ -1376,7 +1387,12 @@ export class PlayScene extends Phaser.Scene {
       max: radius,
       life,
       maxLife: life,
-    })
+    }
+    this.empPulses.push(pulse)
+    this.lastEmpOrigin = { x: pulse.x, y: pulse.y }
+    this.lastEmpRadius = radius
+    this.lastEmpStruck = []
+    this.strikePulse(pulse)
     this.empCd = WEAPONS.emp.cooldown
     this.flash = 0.7
     this.kick(0.012, 200, true)
@@ -1385,32 +1401,35 @@ export class PlayScene extends Phaser.Scene {
     this.noteTutorial(1)
   }
 
+  private strikePulse(pulse: { id: number; x: number; y: number; max: number }): void {
+    for (let n = 0; n < this.enemies.length; n++) {
+      const enemy = this.enemies[n]
+      if (!inEmpRadius(pulse.x, pulse.y, pulse.max, enemy, pulse.id)) continue
+      const hpBefore = enemy.hp
+      enemy.empMark = pulse.id
+      enemy.stun = Math.max(enemy.stun, WEAPONS.emp.stun)
+      enemy.flash = 0.45
+      this.damageEnemy(enemy, WEAPONS.emp.damage)
+      this.lastEmpStruck.push({
+        kind: enemy.kind,
+        x: enemy.x,
+        y: enemy.y,
+        hpBefore,
+        hp: enemy.hp,
+        stun: enemy.stun,
+      })
+    }
+  }
+
   private tickEmp(dt: number): void {
     let write = 0
     for (let i = 0; i < this.empPulses.length; i++) {
       const pulse = this.empPulses[i]
-      const prev = pulse.r
       pulse.life -= dt
       const grown = 1 - Math.max(0, pulse.life) / pulse.maxLife
-      pulse.r = Math.max(prev, pulse.max * Math.min(1, grown))
-      const finishing = pulse.life <= 0
-      if (finishing) pulse.r = pulse.max
-      for (let n = 0; n < this.enemies.length; n++) {
-        const enemy = this.enemies[n]
-        const crossed = ringReaches(prev, pulse.r, pulse.x, pulse.y, enemy, pulse.id)
-        const inside =
-          finishing &&
-          enemy.active &&
-          !enemy.attract &&
-          enemy.empMark !== pulse.id &&
-          Math.hypot(enemy.x - pulse.x, enemy.y - pulse.y) <= pulse.max + enemy.r
-        if (!crossed && !inside) continue
-        enemy.empMark = pulse.id
-        enemy.stun = Math.max(enemy.stun, WEAPONS.emp.stun)
-        enemy.flash = 0.28
-        this.damageEnemy(enemy, WEAPONS.emp.damage)
-      }
-      if (!finishing) this.empPulses[write++] = pulse
+      pulse.r = pulse.max * Math.min(1, Math.max(0, grown))
+      this.strikePulse(pulse)
+      if (pulse.life > 0) this.empPulses[write++] = pulse
     }
     this.empPulses.length = write
   }
@@ -1556,9 +1575,65 @@ export class PlayScene extends Phaser.Scene {
     for (let i = 0; i < 8; i++) this.markers.push(makeMarker())
   }
 
+  private publishDebug(): void {
+    const canvas = this.game?.canvas
+    const api = {
+      phase: this.phase,
+      weapon: this.weapon,
+      autoFire: this.autoFire,
+      empCd: this.empCd,
+      viewW: this.viewW,
+      viewH: this.viewH,
+      cssWidth: canvas ? Math.round(canvas.clientWidth) : 0,
+      cssHeight: canvas ? Math.round(canvas.clientHeight) : 0,
+      bufferWidth: canvas?.width ?? 0,
+      bufferHeight: canvas?.height ?? 0,
+      enemies: this.enemies
+        .filter((e) => e.active && !e.attract)
+        .map((e) => ({ kind: e.kind, x: e.x, y: e.y, r: e.r, hp: e.hp, maxHp: e.maxHp, stun: e.stun })),
+      pulses: this.empPulses.map((p) => ({ x: p.x, y: p.y, r: p.r, max: p.max, life: p.life })),
+      bullets: this.bullets
+        .filter((b) => b.active)
+        .map((b) => ({ homing: b.homing, skin: b.skin, x: b.x, y: b.y })),
+      lastEmpStruck: this.lastEmpStruck,
+      lastEmpOrigin: this.lastEmpOrigin,
+      lastEmpRadius: this.lastEmpRadius,
+      missileSkin: this.save.missileSkin,
+      coins: this.save.coins,
+      inject: (kind: 'drone' | 'missile' | 'armour' | 'swarm') => this.injectProbe(kind),
+    }
+    ;(window as Window & { __DRONE_DEBUG__?: typeof api }).__DRONE_DEBUG__ = api
+  }
+
+  private injectProbe(kind: 'drone' | 'missile' | 'armour' | 'swarm'): boolean {
+    if (this.phase !== 'playing') return false
+    const e = this.takeEnemy()
+    if (!e) return false
+    const common = {
+      unit: this.unit,
+      speedMul: 1,
+      wave: Math.max(1, this.wave),
+      x: this.viewW * 0.5,
+      y: kind === 'missile' ? -20 : kind === 'drone' ? -28 : this.viewH * 0.22,
+      targetX: this.viewW * 0.5,
+      targetY: this.groundY,
+    }
+    if (kind === 'drone') armDrone(e, { ...common, entryX: common.x, y: -28 })
+    else if (kind === 'missile') armMissile(e, { ...common, y: -16, arc: false, arcAmp: 0 })
+    else if (kind === 'armour') armArmour(e, { ...common, y: this.viewH * 0.22, arc: true, arcAmp: 30 })
+    else armSwarm(e, { ...common, entryX: this.viewW * 0.3, y: this.viewH * 0.3 })
+    e.stun = 0
+    e.empMark = 0
+    return true
+  }
+
   private takeEnemy(): Enemy | null {
     for (let i = 0; i < this.enemies.length; i++) {
-      if (!this.enemies[i].active) return this.enemies[i]
+      if (!this.enemies[i].active) {
+      this.enemies[i].stun = 0
+      this.enemies[i].empMark = 0
+      return this.enemies[i]
+    }
     }
     if (this.enemies.length >= BALANCE.maxEnemies + 8) return null
     const e = makeEnemy()

@@ -585,12 +585,31 @@ function wireWeapons(root: HTMLElement): void {
     button.className = 'hud-btn'
     button.dataset.weapon = item.id
     const sub = item.id === 'emp' ? '<span class="weapon-sub" hidden>Tap</span>' : ''
-    button.innerHTML = `<span class="cd-ring" hidden></span><span class="weapon-label">${item.label}</span>${sub}`
+    const ring =
+      item.id === 'emp'
+        ? '<span class="cd-ring" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><circle class="cd-track" cx="8" cy="8" r="6"/><circle class="cd-sweep" cx="8" cy="8" r="6"/></svg></span>'
+        : ''
+    button.innerHTML = `${ring}<span class="weapon-label">${item.label}</span>${sub}`
+    let lastEmpTap = 0
+    const fireEmpTap = (event: Event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const now = performance.now()
+      if (now - lastEmpTap < 400) return
+      lastEmpTap = now
+      audio.unlock()
+      emitCommand({ type: 'fire-emp' })
+    }
+    if (item.id === 'emp') {
+      button.addEventListener('pointerup', fireEmpTap)
+      button.addEventListener('click', fireEmpTap)
+    }
     button.addEventListener('click', () => {
+      if (item.id === 'emp') return
       audio.unlock()
       const snap = latest
       if (snap && snap.weapon === item.id && snap.phase === 'playing') {
-        emitCommand(item.id === 'emp' ? { type: 'fire-emp' } : { type: 'tap-fire' })
+        emitCommand({ type: 'tap-fire' })
         return
       }
       emitCommand({ type: 'equip', id: item.id })

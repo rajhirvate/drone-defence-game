@@ -301,12 +301,35 @@ body.is-playing #game canvas {
 
 .cd-ring {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: conic-gradient(from -90deg, var(--cyan) calc(var(--p, 0) * 1%), transparent 0);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  top: 3px;
+  right: 3px;
+  width: 16px;
+  height: 16px;
   pointer-events: none;
+  z-index: 2;
+}
+
+.cd-ring svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.cd-track,
+.cd-sweep {
+  fill: none;
+  stroke-width: 2.5;
+}
+
+.cd-track { stroke: rgba(7, 9, 20, 0.45); }
+
+.cd-sweep {
+  stroke: var(--cyan);
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 8px 8px;
+  stroke-dasharray: 37.7;
+  stroke-dashoffset: calc(37.7 * (1 - var(--p, 0) / 100));
 }
 
 .weapon-sub {

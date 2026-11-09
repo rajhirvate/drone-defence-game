@@ -9,6 +9,19 @@ export interface RingTarget {
   empMark: number
 }
 
+/** True when the target sits inside the pulse's final radius and has not been tagged. */
+export function inEmpRadius(
+  originX: number,
+  originY: number,
+  radius: number,
+  target: RingTarget,
+  pulseId: number,
+): boolean {
+  if (!target.active || target.attract || target.empMark === pulseId) return false
+  const distance = Math.hypot(target.x - originX, target.y - originY)
+  return distance <= radius + target.r
+}
+
 /** True when the expanding ring crosses this target and has not already tagged it. */
 export function ringReaches(
   prev: number,
@@ -36,6 +49,7 @@ export function empReach(
   unit: number,
   configRadius: number,
 ): number {
+  const margin = Math.max(96, unit * 90)
   const span = Math.hypot(Math.max(originX, viewW - originX), Math.max(originY, viewH - originY))
-  return Math.max(span, originY + unit * 48, configRadius * unit)
+  return Math.max(span + margin, originY + margin, configRadius * unit)
 }
