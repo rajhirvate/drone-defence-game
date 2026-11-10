@@ -232,7 +232,10 @@ test.describe('skins and a busy wave', () => {
     await page.locator('#campaign').click()
     await page.locator('#map-nodes button', { hasText: 'High Court' }).click()
     await page.waitForFunction(() => window.__DRONE_DEBUG__?.phase === 'playing')
-    await page.waitForFunction(() => (window.__DRONE_DEBUG__?.enemies?.length ?? 0) >= 10, null, { timeout: 20_000 })
+    await page.waitForFunction(() => {
+      const enemies = window.__DRONE_DEBUG__?.enemies ?? []
+      return enemies.filter((enemy) => enemy.y > 240 && enemy.y < 780).length >= 6
+    }, null, { timeout: 20_000 })
     await page.screenshot({ path: '/opt/cursor/artifacts/after-busy-wave.png' })
     await page.locator('#weapons button[data-weapon="missile"]').click()
     const canvas = page.locator('#game canvas')
