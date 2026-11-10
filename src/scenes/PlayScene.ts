@@ -10,6 +10,7 @@ import {
   SHOP,
   TUTORIAL,
   MISSILE_SKINS,
+  TURRET_SKINS,
   WEAPONS,
   fireInterval,
   pelletCount,
@@ -19,6 +20,7 @@ import {
   spreadStep,
   starsFor,
   type MissileSkinId,
+  type TurretSkinId,
   type UpgradeId,
   type WeaponId,
 } from '../config'
@@ -112,6 +114,9 @@ export class PlayScene extends Phaser.Scene {
   private haptics = true
   private mode: 'endless' | 'campaign' | 'daily' = 'endless'
   private levelId = 1
+  private skinsFrom: Snapshot['phase'] = 'menu'
+  private skinToast = ''
+  private skinToastT = 0
   private weapon: WeaponId = 'cannon'
   private save: SaveData = loadSave()
   private timeScale = 1
@@ -237,6 +242,10 @@ export class PlayScene extends Phaser.Scene {
       this.bannerT -= dt
       if (this.bannerT <= 0) this.banner = ''
     }
+    if (this.skinToastT > 0) {
+      this.skinToastT -= dt
+      if (this.skinToastT <= 0) this.skinToast = ''
+    }
     if (this.comboTime > 0) {
       this.comboTime -= dt
       if (this.comboTime <= 0) this.mult = 1
@@ -255,7 +264,7 @@ export class PlayScene extends Phaser.Scene {
     this.spin += this.spinSpeed * dt
     this.aimDisplay = lerpAngle(this.aimDisplay, this.aim, 1 - Math.exp(-16 * dt))
 
-    const idle = this.phase === 'menu' || this.phase === 'map' || this.phase === 'armoury'
+    const idle = this.phase === 'menu' || this.phase === 'map' || this.phase === 'armoury' || this.phase === 'skins'
     if (idle) {
       this.aimAttract()
       this.updateAttract(dt)
@@ -308,6 +317,18 @@ export class PlayScene extends Phaser.Scene {
         this.phase = 'armoury'
         this.deactivateAll()
         break
+      case 'open-skins':
+        this.skinsFrom =
+          this.phase === 'upgrade' || this.phase === 'clear' || this.phase === 'armoury' || this.phase === 'map'
+            ? this.phase
+            : 'menu'
+        this.paused = false
+        if (this.skinsFrom !== 'upgrade' && this.skinsFrom !== 'clear') this.deactivateAll()
+        this.phase = 'skins'
+        break
+      case 'close-skins':
+        this.phase = this.skinsFrom
+        break
       case 'back-menu':
         this.paused = false
         this.phase = 'menu'
@@ -347,6 +368,9 @@ export class PlayScene extends Phaser.Scene {
         break
       case 'buy-skin':
         this.buySkin(command.id)
+        break
+      case 'buy-turret':
+        this.buyTurret(command.id)
         break
       case 'equip':
         if (this.save.owned[command.id]) {
@@ -1303,6 +1327,7 @@ export class PlayScene extends Phaser.Scene {
       reduceMotion: this.reduce,
       beams: this.beams,
       empPulses: this.empPulses,
+      turretSkin: this.save.turretSkin,
     }
     paintAction(this.fx, frame)
   }
@@ -1369,7 +1394,14 @@ export class PlayScene extends Phaser.Scene {
     v.dailyBest = this.save.dailyBest[this.dailyDate] ?? 0
     v.paused = this.paused
     v.missileSkin = this.save.missileSkin
-    v.ownedSkinKey = (['flare', 'needle', 'comet'] as const).filter((id) => this.save.ownedSkins[id]).join(',')
+    v.ownedSkinKey = MISSILE_SKINS.filter((skin) => skin.cost > 0 && this.save.ownedSkins[skin.id])
+      .map((skin) => skin.id)
+      .join(',')
+    v.turretSkin = this.save.turretSkin
+    v.ownedTurretKey = TURRET_SKINS.filter((skin) => skin.cost > 0 && this.save.ownedTurrets[skin.id])
+      .map((skin) => skin.id)
+      .join(',')
+    v.skinToast = this.skinToast
     if (this.mode === 'endless') v.best = this.save.bestEndless
     emitView(v)
     this.publishDebug()
@@ -1535,10 +1567,30 @@ export class PlayScene extends Phaser.Scene {
       if (this.save.coins < def.cost) return
       this.save.coins -= def.cost
       this.save.ownedSkins[id] = true
+      if (def.cost > 0) this.noteSkinUnlock(def.name)
     }
     this.save.missileSkin = id
     saveGame(this.save)
     audio.play('upgrade')
+  }
+
+  private buyTurret(id: TurretSkinId): void {
+    const def = TURRET_SKINS.find((skin) => skin.id === id)
+    if (!def) return
+    if (!this.save.ownedTurrets[id]) {
+      if (this.save.coins < def.cost) return
+      this.save.coins -= def.cost
+      this.save.ownedTurrets[id] = true
+      if (def.cost > 0) this.noteSkinUnlock(def.name)
+    }
+    this.save.turretSkin = id
+    saveGame(this.save)
+    audio.play('upgrade')
+  }
+
+  private noteSkinUnlock(name: string): void {
+    this.skinToast = `New skin unlocked: ${name}`
+    this.skinToastT = 2.6
   }
 
   private popRound(b: Bullet): void {
@@ -1553,18 +1605,18 @@ export class PlayScene extends Phaser.Scene {
     }
     if (b.skin === 'needle') {
       this.spark(b.x, b.y, 0xffffff)
-      const ring = this.takeParticle()
-      ring.active = true
-      ring.ring = true
-      ring.x = b.x
-      ring.y = b.y
-      ring.vx = 0
-      ring.vy = 0
-      ring.r = 3
-      ring.max = 0.18
-      ring.life = 0.18
-      ring.color = 0xf7fbff
-      ring.grav = 0
+      return
+    }
+    if (b.skin === 'halo' || b.skin === 'prism') {
+      this.spark(b.x, b.y, b.skin === 'halo' ? 0x9af6ff : 0xf7fbff)
+      return
+    }
+    if (b.skin === 'viper') {
+      this.spark(b.x, b.y, 0xb6f27a)
+      return
+    }
+    if (b.skin === 'lantern') {
+      this.spark(b.x, b.y, 0xffb15a)
       return
     }
     this.spark(b.x, b.y, 0xc9a6ff)

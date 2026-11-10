@@ -39,10 +39,10 @@ export const BALANCE = {
   bulletLife: 1.25,
   bulletRadius: 4.5,
   tracer: 56,
-  maxActive: 12,
+  maxActive: 18,
   maxParticles: 80,
   maxBullets: 64,
-  maxEnemies: 32,
+  maxEnemies: 48,
   fireIntervalBase: 0.13,
   fireIntervalFactor: 0.86,
   fireIntervalMin: 0.045,
@@ -85,17 +85,34 @@ export function shellDamage(level: number): number {
 
 export type WeaponId = 'cannon' | 'laser' | 'missile' | 'emp'
 
-export type MissileSkinId = 'standard' | 'flare' | 'needle' | 'comet'
-
 export const MISSILE_SKINS = [
   { id: 'standard', name: 'Standard', cost: 0, blurb: 'Cyan dart and a clean trail.' },
   { id: 'flare', name: 'Flare', cost: 45, blurb: 'Wide amber body and a fire trail.' },
   { id: 'needle', name: 'Needle', cost: 80, blurb: 'Slim bolt with a long white streak.' },
-  { id: 'comet', name: 'Comet', cost: 120, blurb: 'Violet head and a ring burst.' },
+  { id: 'halo', name: 'Halo', cost: 90, blurb: 'Cyan core inside an amber ring.' },
+  { id: 'viper', name: 'Viper', cost: 110, blurb: 'A green-gold chevron and twin trails.' },
+  { id: 'comet', name: 'Comet', cost: 140, blurb: 'Violet head and a ring burst.' },
+  { id: 'lantern', name: 'Lantern', cost: 170, blurb: 'A round amber lamp with a warm wake.' },
+  { id: 'prism', name: 'Prism', cost: 210, blurb: 'White crystal with cyan and amber facets.' },
 ] as const
 
+export type MissileSkinId = (typeof MISSILE_SKINS)[number]['id']
+
+export const TURRET_SKINS = [
+  { id: 'navy', name: 'Navy', cost: 0, blurb: 'The battery’s own paint.' },
+  { id: 'amber', name: 'Amber', cost: 40, blurb: 'Warm barrel and a brass housing.' },
+  { id: 'cyan', name: 'Cyan', cost: 70, blurb: 'Pale barrel and a signal-blue base.' },
+  { id: 'violet', name: 'Violet', cost: 110, blurb: 'A dusk housing and a lilac barrel.' },
+] as const
+
+export type TurretSkinId = (typeof TURRET_SKINS)[number]['id']
+
 export function isMissileSkin(id: string): id is MissileSkinId {
-  return id === 'standard' || id === 'flare' || id === 'needle' || id === 'comet'
+  return MISSILE_SKINS.some((skin) => skin.id === id)
+}
+
+export function isTurretSkin(id: string): id is TurretSkinId {
+  return TURRET_SKINS.some((skin) => skin.id === id)
 }
 
 export const WEAPONS = {

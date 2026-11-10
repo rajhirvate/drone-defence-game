@@ -104,10 +104,13 @@ export function chainReady(queued: number, alive: number, waveIndex: number, wav
   return waveIndex < waveTotal && queued <= 0 && alive <= WAVE_OVERLAP
 }
 
+/** How many hostiles can be in the air at once. Matches the play scene cap. */
+export const ON_SCREEN = 18
+
 /** Drone count for one wave. Later waves are strictly larger, about +28%, and at least +1. */
 export function droneCount(levelId: number, waveIndex: number, difficulty: Difficulty): number {
   const p = pressure(levelId)
-  const base = Math.max(3, Math.round((3.4 + p * 6.2) * DIFFICULTY[difficulty].count))
+  const base = Math.max(4, Math.round((5.6 + p * 9) * DIFFICULTY[difficulty].count))
   let count = base
   for (let i = 0; i < waveIndex; i++) count = Math.max(count + 1, Math.round(count * 1.28))
   return count
@@ -187,7 +190,7 @@ function formation(
     for (let g = 0; g < groups; g++) {
       const lane = 0.18 + ((g + 0.5) / groups) * 0.64
       for (let k = 0; k < 3 && n < count; k++) {
-        push(events, start + g * stagger * 2.1 + k * 0.16, 'drone', lane + (k - 1) * 0.05)
+        push(events, start + g * stagger * 1.2 + k * 0.12, 'drone', lane + (k - 1) * 0.05)
         n++
       }
     }
@@ -209,7 +212,7 @@ export function buildWaveEvents(levelId: number, waveIndex: number, difficulty: 
   const pattern = patternCycle[(levelId + waveIndex) % patternCycle.length]
   const late = waveIndex / Math.max(1, waveCountFor(levelId) - 1)
   const drones = droneCount(levelId, waveIndex, difficulty)
-  const stagger = (0.78 - p * 0.18) / diff.rate
+  const stagger = (0.5 - p * 0.06) / diff.rate
   const start = 0.7
   const events = formation(pattern, drones, start, stagger, rand)
   const span = Math.max(...events.map((e) => e.at), start)
@@ -299,7 +302,7 @@ export function estimateClearSeconds(levelId: number, difficulty: Difficulty = '
       let spawnedAlive = queue.filter((q) => q.spawned && q.left > 0).length
       for (const q of queue) {
         if (q.spawned || q.at > t) continue
-        if (spawnedAlive >= 12) break
+        if (spawnedAlive >= ON_SCREEN) break
         q.spawned = true
         spawnedAlive++
       }

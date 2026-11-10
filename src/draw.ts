@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { mixHex } from './math'
 import { type Building, type LitWindow } from './skyline'
 import type { Bullet, Enemy, Fire, Marker, Particle, Star } from './types'
-import type { MissileSkinId } from './config'
+import type { MissileSkinId, TurretSkinId } from './config'
 
 const hexPts: { x: number; y: number }[] = [
   { x: 0, y: 0 },
@@ -56,6 +56,7 @@ export interface ActionFrame {
   reduceMotion: boolean
   beams: readonly Beam[]
   empPulses: readonly EmpPulseDraw[]
+  turretSkin: TurretSkinId
 }
 
 export interface Beam {
@@ -330,6 +331,64 @@ function drawPlayerMissile(g: Phaser.GameObjects.Graphics, b: Bullet, unit: numb
     diamond(g, b.x + ux * unit * 6, b.y + uy * unit * 6, Math.max(3, unit * 3), ang)
     return
   }
+  if (skin === 'halo') {
+    g.lineStyle(Math.max(2, unit * 2.2), 0xffb15a, 0.7)
+    g.strokeCircle(b.x - ux * unit * 16, b.y - uy * unit * 16, Math.max(5, unit * 7))
+    g.lineStyle(Math.max(2, unit * 2.4), 0x9af6ff, 0.9)
+    g.beginPath()
+    g.moveTo(b.x - ux * unit * 42, b.y - uy * unit * 42)
+    g.lineTo(b.x, b.y)
+    g.strokePath()
+    g.fillStyle(0x9af6ff, 1)
+    g.fillCircle(b.x, b.y, Math.max(3.5, unit * 4))
+    g.fillStyle(0xfff6d2, 1)
+    g.fillCircle(b.x, b.y, Math.max(1.6, unit * 1.8))
+    return
+  }
+  if (skin === 'viper') {
+    const px = -uy
+    const py = ux
+    g.lineStyle(Math.max(1.6, unit * 1.8), 0xb6f27a, 0.9)
+    g.beginPath()
+    g.moveTo(b.x - ux * unit * 70 + px * unit * 3, b.y - uy * unit * 70 + py * unit * 3)
+    g.lineTo(b.x, b.y)
+    g.moveTo(b.x - ux * unit * 70 - px * unit * 3, b.y - uy * unit * 70 - py * unit * 3)
+    g.lineTo(b.x, b.y)
+    g.strokePath()
+    g.fillStyle(0xd6ff9a, 1)
+    diamond(g, b.x, b.y, Math.max(5, unit * 6), ang)
+    g.fillStyle(0xffb15a, 1)
+    diamond(g, b.x - ux * unit * 6, b.y - uy * unit * 6, Math.max(2, unit * 2.4), ang)
+    return
+  }
+  if (skin === 'lantern') {
+    g.lineStyle(Math.max(4, unit * 5), 0xff8a3d, 0.35)
+    g.beginPath()
+    g.moveTo(b.x - ux * unit * 36, b.y - uy * unit * 36)
+    g.lineTo(b.x, b.y)
+    g.strokePath()
+    g.fillStyle(0xffb15a, 0.35)
+    g.fillCircle(b.x, b.y, Math.max(8, unit * 10))
+    g.fillStyle(0xffe1a8, 1)
+    g.fillCircle(b.x, b.y, Math.max(4, unit * 5))
+    g.fillStyle(0xfff6d2, 1)
+    g.fillCircle(b.x, b.y, Math.max(2, unit * 2.2))
+    return
+  }
+  if (skin === 'prism') {
+    g.lineStyle(Math.max(1.5, unit * 1.6), 0x9af6ff, 0.8)
+    g.beginPath()
+    g.moveTo(b.x - ux * unit * 28, b.y - uy * unit * 28)
+    g.lineTo(b.x, b.y)
+    g.strokePath()
+    g.fillStyle(0xf7fbff, 1)
+    diamond(g, b.x, b.y, Math.max(5, unit * 6), ang)
+    g.fillStyle(0x9af6ff, 1)
+    diamond(g, b.x - ux * unit * 8 + uy * unit * 4, b.y - uy * unit * 8 - ux * unit * 4, Math.max(2.4, unit * 2.6), ang)
+    g.fillStyle(0xffb15a, 1)
+    diamond(g, b.x - ux * unit * 8 - uy * unit * 4, b.y - uy * unit * 8 + ux * unit * 4, Math.max(2.4, unit * 2.6), ang)
+    return
+  }
   if (skin === 'comet') {
     g.lineStyle(Math.max(3, unit * 3.4), 0xc9a6ff, 0.55)
     g.beginPath()
@@ -510,15 +569,23 @@ function drawShard(g: Phaser.GameObjects.Graphics, e: Enemy, flash: boolean): vo
   diamond(g, e.x, e.y, e.r, e.angle)
 }
 
+const TURRET_PAINT = {
+  navy: { base: 0x1a2233, mid: 0x31425c, top: 0x5c6e88, barrel: 0x9aa6b8, trim: 0x6a7c94 },
+  amber: { base: 0x2a1c10, mid: 0x6a4220, top: 0xffb15a, barrel: 0xffd7a1, trim: 0xc47a32 },
+  cyan: { base: 0x102028, mid: 0x1c4a56, top: 0x9af6ff, barrel: 0xd8fbff, trim: 0x3a8a96 },
+  violet: { base: 0x1a1428, mid: 0x3a2a58, top: 0xc9a6ff, barrel: 0xe4d8ff, trim: 0x6a4cff },
+} as const
+
 function drawTurret(g: Phaser.GameObjects.Graphics, f: ActionFrame): void {
   const x = f.turretX
   const y = f.turretY
   const u = f.unit
-  g.fillStyle(0x1a2233, 1)
+  const paint = TURRET_PAINT[f.turretSkin] ?? TURRET_PAINT.navy
+  g.fillStyle(paint.base, 1)
   g.fillRect(x - u * 36, y - u * 2, u * 72, u * 16)
-  g.fillStyle(0x31425c, 1)
+  g.fillStyle(paint.mid, 1)
   g.fillRect(x - u * 22, y - u * 14, u * 44, u * 16)
-  g.fillStyle(0x5c6e88, 1)
+  g.fillStyle(paint.top, 1)
   g.fillRect(x - u * 10, y - u * 20, u * 20, u * 10)
 
   const pivotX = x
@@ -526,9 +593,9 @@ function drawTurret(g: Phaser.GameObjects.Graphics, f: ActionFrame): void {
   const c = Math.cos(f.aim)
   const s = Math.sin(f.aim)
   const len = f.barrel
-  g.fillStyle(0x9aa6b8, 1)
+  g.fillStyle(paint.barrel, 1)
   quad(g, pivotX + c * len * 0.48, pivotY + s * len * 0.48, len, Math.max(5, u * 7), f.aim)
-  g.fillStyle(0x6a7c94, 1)
+  g.fillStyle(paint.trim, 1)
   quad(g, pivotX + c * len * 0.48, pivotY + s * len * 0.48, len * 0.92, Math.max(2, u * 2.4), f.aim)
 
   const tipX = pivotX + c * len

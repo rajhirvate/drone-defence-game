@@ -1,7 +1,18 @@
 import { audio } from './audio'
 import { emitCommand, onView } from './bridge'
 import { LEVELS } from './campaign'
-import { GAME_TITLE, MISSILE_SKINS, SHOP, UPGRADES, rankCost, type MissileSkinId, type UpgradeId, type WeaponId } from './config'
+import {
+  GAME_TITLE,
+  MISSILE_SKINS,
+  SHOP,
+  TURRET_SKINS,
+  UPGRADES,
+  rankCost,
+  type MissileSkinId,
+  type TurretSkinId,
+  type UpgradeId,
+  type WeaponId,
+} from './config'
 import { todayKey } from './daily'
 import { formatInt } from './math'
 import { renderShareCard, shareCard } from './sharecard'
@@ -140,6 +151,10 @@ export function mountUi(root: HTMLElement): void {
           <span class="play-kicker">Campaign</span>
           <span class="play-label">Play</span>
         </button>
+        <button type="button" class="skins-launch" id="open-skins">
+          <span class="play-kicker">Colours and trails</span>
+          <span class="play-label">Skins</span>
+        </button>
         <div class="mode-row">
           <button type="button" class="mode-card" id="endless">
             <span class="mode-ico" aria-hidden="true">${ICO.endless}</span>
@@ -197,9 +212,7 @@ export function mountUi(root: HTMLElement): void {
         <p class="sub" id="shop-coins"></p>
         <div class="choices" id="shop-weapons"></div>
         <div class="choices" id="shop-ranks"></div>
-        <p class="eyebrow skins-label">Missile skins</p>
-        <p class="sub">Colours and trails for homing missiles.</p>
-        <div class="skin-grid" id="shop-skins"></div>
+        <button type="button" class="ghost" id="shop-skins">Skins</button>
         <button type="button" class="ghost" id="shop-back">Back</button>
       </div>
     </section>
@@ -211,6 +224,7 @@ export function mountUi(root: HTMLElement): void {
         <p class="sub" id="clear-detail"></p>
         <div class="stack">
           <button type="button" class="primary" id="clear-map">Level map</button>
+          <button type="button" class="ghost" id="clear-skins">Skins</button>
           <button type="button" class="ghost" id="clear-shop">Spend coins</button>
         </div>
       </div>
@@ -221,8 +235,22 @@ export function mountUi(root: HTMLElement): void {
         <h2>Choose an upgrade</h2>
         <p class="sub" id="upgrade-sub"></p>
         <div class="choices" id="choices"></div>
+        <button type="button" class="ghost" id="upgrade-skins">Skins</button>
       </div>
     </section>
+    <section class="overlay" id="skins" hidden>
+      <div class="panel">
+        <p class="eyebrow">Armoury</p>
+        <h2>Skins</h2>
+        <p class="sub" id="skins-coins"></p>
+        <p class="eyebrow skins-label">Missiles</p>
+        <div class="skin-grid" id="skins-grid"></div>
+        <p class="eyebrow skins-label">Turret</p>
+        <div class="skin-grid" id="turret-grid"></div>
+        <button type="button" class="ghost" id="skins-back">Back</button>
+      </div>
+    </section>
+    <div id="skin-toast" class="skin-toast" hidden></div>
     <section class="overlay" id="pause" hidden>
       <div class="panel">
         <p class="eyebrow">Battery hold</p>
@@ -343,6 +371,28 @@ export function mountUi(root: HTMLElement): void {
     })
   })
 
+  root.querySelector('#open-skins')?.addEventListener('click', () => {
+    closeSheets()
+    audio.unlock()
+    emitCommand({ type: 'open-skins' })
+  })
+  root.querySelector('#shop-skins')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'open-skins' })
+  })
+  root.querySelector('#upgrade-skins')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'open-skins' })
+  })
+  root.querySelector('#clear-skins')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'open-skins' })
+  })
+  root.querySelector('#skins-back')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'close-skins' })
+  })
+
   campaignBtn?.addEventListener('click', () => {
     closeSheets()
     audio.unlock()
@@ -411,6 +461,8 @@ export function mountUi(root: HTMLElement): void {
   let phase: Snapshot['phase'] | null = null
   const map = root.querySelector<HTMLElement>('#map')
   const shop = root.querySelector<HTMLElement>('#shop')
+  const skins = root.querySelector<HTMLElement>('#skins')
+  const skinToast = root.querySelector<HTMLElement>('#skin-toast')
   const clear = root.querySelector<HTMLElement>('#clear')
   const upgrade = root.querySelector<HTMLElement>('#upgrade')
   const pause = root.querySelector<HTMLElement>('#pause')
@@ -449,6 +501,7 @@ export function mountUi(root: HTMLElement): void {
       if (menu) menu.hidden = snapshot.phase !== 'menu'
       if (map) map.hidden = snapshot.phase !== 'map'
       if (shop) shop.hidden = snapshot.phase !== 'armoury'
+      if (skins) skins.hidden = snapshot.phase !== 'skins'
       if (clear) clear.hidden = snapshot.phase !== 'clear'
       if (upgrade) upgrade.hidden = snapshot.phase !== 'upgrade'
       if (over) over.hidden = snapshot.phase !== 'gameover'
@@ -458,6 +511,7 @@ export function mountUi(root: HTMLElement): void {
       if (snapshot.phase === 'menu') closeSheets()
       if (snapshot.phase === 'map') fillMap(root)
       if (snapshot.phase === 'armoury') fillShop(root)
+      if (snapshot.phase === 'skins') fillSkins(root)
       if (snapshot.phase === 'clear') fillClear(root, snapshot)
       if (snapshot.phase === 'gameover' && snapshot.mode === 'daily') void showDailyCard(root, snapshot)
       if (snapshot.phase === 'menu' && finePointer()) campaignBtn?.focus()
@@ -567,6 +621,18 @@ export function mountUi(root: HTMLElement): void {
       if (text) text.textContent = snapshot.tutorial
     }
     if (menuHaptics) setHaptics(menuHaptics, loadSave().haptics)
+    if (skinToast) {
+      const show = snapshot.skinToast.length > 0
+      skinToast.hidden = !show
+      if (show) skinToast.textContent = snapshot.skinToast
+    }
+    if (snapshot.phase === 'skins') {
+      const skinKey = `${snapshot.coins}:${snapshot.missileSkin}:${snapshot.turretSkin}:${snapshot.ownedSkinKey}:${snapshot.ownedTurretKey}`
+      if (skinKey !== root.dataset.skins) {
+        root.dataset.skins = skinKey
+        fillSkins(root)
+      }
+    }
     if (snapshot.phase === 'armoury') {
       const shopKey = `${snapshot.coins}:${snapshot.weapon}:${snapshot.ownedLaser}:${snapshot.ownedMissile}:${snapshot.ownedEmp}:${snapshot.missileSkin}:${snapshot.ownedSkinKey}`
       if (shopKey !== root.dataset.shop) {
@@ -774,9 +840,16 @@ function fillShop(root: HTMLElement): void {
     })
     ranks.appendChild(button)
   }
-  const skins = root.querySelector('#shop-skins')
-  if (!skins) return
-  skins.replaceChildren()
+}
+
+function fillSkins(root: HTMLElement): void {
+  const save = loadSave()
+  const coins = root.querySelector('#skins-coins')
+  if (coins) coins.textContent = `${formatInt(save.coins)} coins · missile ${save.missileSkin} · turret ${save.turretSkin}`
+  const missiles = root.querySelector('#skins-grid')
+  const turrets = root.querySelector('#turret-grid')
+  if (!missiles || !turrets) return
+  missiles.replaceChildren()
   for (const skin of MISSILE_SKINS) {
     const owned = save.ownedSkins[skin.id]
     const equipped = save.missileSkin === skin.id
@@ -784,6 +857,7 @@ function fillShop(root: HTMLElement): void {
     button.type = 'button'
     button.className = 'skin-card'
     if (equipped) button.classList.add('on')
+    if (!owned) button.classList.add('locked')
     const badge = equipped ? 'Equipped' : owned ? 'Unlocked' : 'Locked'
     const action = equipped ? 'Equipped' : owned ? 'Equip' : `${skin.cost} coins`
     button.disabled = !owned && skin.cost > save.coins
@@ -792,7 +866,26 @@ function fillShop(root: HTMLElement): void {
       audio.unlock()
       emitCommand({ type: 'buy-skin', id: skin.id })
     })
-    skins.appendChild(button)
+    missiles.appendChild(button)
+  }
+  turrets.replaceChildren()
+  for (const skin of TURRET_SKINS) {
+    const owned = save.ownedTurrets[skin.id]
+    const equipped = save.turretSkin === skin.id
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'skin-card'
+    if (equipped) button.classList.add('on')
+    if (!owned) button.classList.add('locked')
+    const badge = equipped ? 'Equipped' : owned ? 'Unlocked' : 'Locked'
+    const action = equipped ? 'Equipped' : owned ? 'Equip' : `${skin.cost} coins`
+    button.disabled = !owned && skin.cost > save.coins
+    button.innerHTML = `<span class="badge">${badge}</span>${turretPreview(skin.id)}<span class="choice-name">${skin.name}</span><span class="choice-blurb">${skin.blurb}</span><span class="choice-stat">${action}</span>`
+    button.addEventListener('click', () => {
+      audio.unlock()
+      emitCommand({ type: 'buy-turret', id: skin.id })
+    })
+    turrets.appendChild(button)
   }
 }
 
@@ -803,10 +896,27 @@ function skinPreview(id: MissileSkinId): string {
   if (id === 'needle') {
     return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><path d="M4 18h92" stroke="#f7fbff" stroke-width="2"/><path d="M96 18l20-4v8z" fill="#9af6ff"/></svg>'
   }
+  if (id === 'halo') {
+    return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><circle cx="78" cy="18" r="10" fill="none" stroke="#ffb15a" stroke-width="2"/><circle cx="96" cy="18" r="5" fill="#9af6ff"/></svg>'
+  }
+  if (id === 'viper') {
+    return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><path d="M8 14h70M8 22h70" stroke="#b6f27a" stroke-width="2"/><path d="M78 18l28-10v20z" fill="#d6ff9a"/></svg>'
+  }
   if (id === 'comet') {
     return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><circle cx="28" cy="18" r="3" fill="#ffb15a"/><circle cx="48" cy="18" r="4" fill="#e4d8ff"/><circle cx="70" cy="18" r="5" fill="#c9a6ff"/><circle cx="96" cy="18" r="8" fill="#6a4cff"/><circle cx="99" cy="16" r="3" fill="#f4f1ea"/></svg>'
   }
+  if (id === 'lantern') {
+    return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><circle cx="70" cy="18" r="8" fill="#ff8a3d" opacity="0.45"/><circle cx="96" cy="18" r="8" fill="#ffe1a8"/><circle cx="96" cy="18" r="3" fill="#fff6d2"/></svg>'
+  }
+  if (id === 'prism') {
+    return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><path d="M70 18l10-8 10 8-10 8z" fill="#9af6ff"/><path d="M88 18l12-9 12 9-12 9z" fill="#f7fbff"/><path d="M78 28l8-6 8 6-8 6z" fill="#ffb15a"/></svg>'
+  }
   return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><path d="M8 18h64" stroke="#9af6ff" stroke-width="3" stroke-linecap="round"/><path d="M74 18l28-9 6 9-6 9z" fill="#f4f1ea"/></svg>'
+}
+
+function turretPreview(id: TurretSkinId): string {
+  const color = id === 'amber' ? '#ffb15a' : id === 'cyan' ? '#9af6ff' : id === 'violet' ? '#c9a6ff' : '#9aa6b8'
+  return `<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><rect x="28" y="22" width="64" height="8" rx="2" fill="${color}" opacity="0.45"/><rect x="56" y="8" width="8" height="18" fill="${color}"/></svg>`
 }
 
 function fillClear(root: HTMLElement, snapshot: Snapshot): void {

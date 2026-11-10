@@ -382,6 +382,44 @@ body.is-playing #game canvas {
   box-shadow: 0 0 16px rgba(255, 177, 90, 0.22);
 }
 
+.skin-card.locked { opacity: 0.78; }
+
+.skins-launch {
+  min-height: 52px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  border: 1px solid rgba(154, 246, 255, 0.55);
+  background: rgba(10, 22, 40, 0.72);
+  color: #f4f1ea;
+  box-shadow: 0 0 18px rgba(154, 246, 255, 0.16);
+}
+
+.skins-launch .play-label { color: var(--cyan); }
+
+.skin-toast {
+  position: absolute;
+  left: 50%;
+  top: calc(max(10px, env(safe-area-inset-top)) + 12px);
+  transform: translateX(-50%);
+  z-index: 8;
+  pointer-events: none;
+  max-width: calc(100% - 24px);
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(10, 16, 32, 0.92);
+  border: 1px solid var(--amber);
+  color: var(--amber);
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
 .skin-card .badge {
   font-family: var(--mono);
   font-size: 10px;
@@ -1053,6 +1091,7 @@ body.touch-ui .keys-desktop { display: none !important; }
     grid-template-columns: minmax(0, 1.15fr) minmax(200px, 280px);
     grid-template-areas:
       "brand play"
+      "brand skins"
       "brand modes"
       "foot foot";
     gap: 6px 14px;
@@ -1060,6 +1099,7 @@ body.touch-ui .keys-desktop { display: none !important; }
   }
   .menu-brand { grid-area: brand; }
   .play-btn { grid-area: play; min-height: 48px; }
+  .skins-launch { grid-area: skins; min-height: 44px; }
   .play-label { font-size: 18px; }
   .mode-row { grid-area: modes; }
   .mode-card { min-height: 64px; padding: 8px; }

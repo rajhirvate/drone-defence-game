@@ -1,7 +1,7 @@
-import type { MissileSkinId, UpgradeId, WeaponId } from './config'
+import type { MissileSkinId, TurretSkinId, UpgradeId, WeaponId } from './config'
 import type { Difficulty } from './pace'
 
-export type Phase = 'menu' | 'map' | 'armoury' | 'playing' | 'upgrade' | 'clear' | 'gameover'
+export type Phase = 'menu' | 'map' | 'armoury' | 'skins' | 'playing' | 'upgrade' | 'clear' | 'gameover'
 
 export type GameMode = 'endless' | 'campaign' | 'daily'
 
@@ -159,6 +159,9 @@ export interface Snapshot {
   paused: boolean
   missileSkin: MissileSkinId
   ownedSkinKey: string
+  turretSkin: TurretSkinId
+  ownedTurretKey: string
+  skinToast: string
 }
 
 export type Command =
@@ -184,6 +187,9 @@ export type Command =
   | { type: 'fire-emp' }
   | { type: 'tap-fire' }
   | { type: 'buy-skin'; id: MissileSkinId }
+  | { type: 'buy-turret'; id: TurretSkinId }
+  | { type: 'open-skins' }
+  | { type: 'close-skins' }
   | { type: 'mark-emp-hint' }
   | { type: 'set-difficulty'; id: Difficulty }
 
@@ -239,5 +245,8 @@ export function blankSnapshot(): Snapshot {
     paused: false,
     missileSkin: 'standard',
     ownedSkinKey: '',
+    turretSkin: 'navy',
+    ownedTurretKey: '',
+    skinToast: '',
   }
 }

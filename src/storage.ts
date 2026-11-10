@@ -1,4 +1,12 @@
-import { isMissileSkin, type MissileSkinId, type WeaponId } from './config'
+import {
+  MISSILE_SKINS,
+  TURRET_SKINS,
+  isMissileSkin,
+  isTurretSkin,
+  type MissileSkinId,
+  type TurretSkinId,
+  type WeaponId,
+} from './config'
 import { LEVELS } from './campaign'
 import { difficultyFromSave, type Difficulty } from './pace'
 
@@ -26,8 +34,16 @@ export interface SaveData {
   tutorialSeen: boolean
   missileSkin: MissileSkinId
   ownedSkins: Record<MissileSkinId, boolean>
+  turretSkin: TurretSkinId
+  ownedTurrets: Record<TurretSkinId, boolean>
   empHintSeen: boolean
   difficulty: Difficulty
+}
+
+function emptyOwned<T extends string>(list: readonly { id: T; cost: number }[]): Record<T, boolean> {
+  const owned = {} as Record<T, boolean>
+  for (const item of list) owned[item.id] = item.cost === 0
+  return owned
 }
 
 function emptyStars(): number[] {
@@ -50,7 +66,9 @@ function emptySave(): SaveData {
     haptics: true,
     tutorialSeen: false,
     missileSkin: 'standard',
-    ownedSkins: { standard: true, flare: false, needle: false, comet: false },
+    ownedSkins: emptyOwned(MISSILE_SKINS),
+    turretSkin: 'navy',
+    ownedTurrets: emptyOwned(TURRET_SKINS),
     empHintSeen: false,
     difficulty: 'medium',
   }
@@ -116,12 +134,23 @@ function sanitize(raw: Partial<SaveData> | null): SaveData {
   base.empHintSeen = raw.empHintSeen === true
   const ownedSkins = raw.ownedSkins
   if (ownedSkins) {
-    base.ownedSkins.flare = ownedSkins.flare === true
-    base.ownedSkins.needle = ownedSkins.needle === true
-    base.ownedSkins.comet = ownedSkins.comet === true
+    for (const skin of MISSILE_SKINS) {
+      if (skin.cost === 0) continue
+      base.ownedSkins[skin.id] = ownedSkins[skin.id] === true
+    }
   }
   if (typeof raw.missileSkin === 'string' && isMissileSkin(raw.missileSkin) && base.ownedSkins[raw.missileSkin]) {
     base.missileSkin = raw.missileSkin
+  }
+  const ownedTurrets = raw.ownedTurrets
+  if (ownedTurrets) {
+    for (const skin of TURRET_SKINS) {
+      if (skin.cost === 0) continue
+      base.ownedTurrets[skin.id] = ownedTurrets[skin.id] === true
+    }
+  }
+  if (typeof raw.turretSkin === 'string' && isTurretSkin(raw.turretSkin) && base.ownedTurrets[raw.turretSkin]) {
+    base.turretSkin = raw.turretSkin
   }
   base.difficulty = difficultyFromSave(raw.difficulty)
   return base

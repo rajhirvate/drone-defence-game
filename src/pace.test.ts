@@ -100,8 +100,13 @@ test('each wave has strictly more drones than the one before it', () => {
     }
   }
   const sample = [0, 1, 2, 3, 4].map((wave) => droneCount(25, wave, 'medium'))
-  console.log('level 25 medium drone counts', sample.join(', '))
-  assert.deepEqual(sample, [6, 8, 10, 13, 17])
+  const report = [1, 10, 25, 40, 50].map((id) => {
+    const counts = []
+    for (let wave = 0; wave < waveCountFor(id); wave++) counts.push(droneCount(id, wave, 'medium'))
+    return `${id}: ${counts.join(', ')}`
+  })
+  console.log('medium drone counts', report.join(' | '))
+  assert.deepEqual(sample, [10, 13, 17, 22, 28])
 })
 
 test('medium clear times for levels 1, 10, 25, 40 and 50', () => {
