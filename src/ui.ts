@@ -1,11 +1,12 @@
 import { audio } from './audio'
 import { emitCommand, onView } from './bridge'
 import { LEVELS } from './campaign'
-import { GAME_TITLE, SHOP, UPGRADES, rankCost, type UpgradeId, type WeaponId } from './config'
+import { GAME_TITLE, MISSILE_SKINS, SHOP, UPGRADES, rankCost, type MissileSkinId, type UpgradeId, type WeaponId } from './config'
 import { todayKey } from './daily'
 import { formatInt } from './math'
 import { renderShareCard, shareCard } from './sharecard'
 import { loadSave } from './storage'
+import type { Difficulty } from './pace'
 import type { Snapshot } from './types'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -85,7 +86,12 @@ export function mountUi(root: HTMLElement): void {
         <span class="k">City</span>
         <div class="hp-track" aria-hidden="true"><div id="hp-fill"></div></div>
       </div>
+      <div class="hp-row" id="boss-row" hidden>
+        <span class="k">Boss</span>
+        <div class="hp-track" aria-hidden="true"><div id="boss-fill"></div></div>
+      </div>
       <div class="weapon-row" id="weapons"></div>
+      <p id="weapon-hint" class="weapon-hint" hidden></p>
       <div id="banner"></div>
       <div id="tutorial" hidden>
         <p id="tutorial-text"></p>
@@ -123,6 +129,11 @@ export function mountUi(root: HTMLElement): void {
           <p class="eyebrow">Close-in battery</p>
           <h1 class="logo" id="title"><span id="title-a"></span><span id="title-b"></span></h1>
           <p class="tag">Hold the skyline.</p>
+          <div class="diff" role="group" aria-label="Difficulty">
+            <button type="button" data-diff="easy">Easy</button>
+            <button type="button" data-diff="medium">Medium</button>
+            <button type="button" data-diff="hard">Hard</button>
+          </div>
           <p class="keys keys-desktop">Space fires · F auto-fire · M mute</p>
         </div>
         <button type="button" class="primary play-btn" id="campaign">
@@ -143,7 +154,7 @@ export function mountUi(root: HTMLElement): void {
           <button type="button" class="mode-card" id="armoury">
             <span class="mode-ico" aria-hidden="true">${ICO.armoury}</span>
             <span class="mode-name">Armoury</span>
-            <span class="mode-sub">Weapons and ranks</span>
+            <span class="mode-sub">Weapons and skins</span>
           </button>
         </div>
         <button type="button" class="text-btn" id="howto-open" aria-expanded="false" aria-controls="howto-sheet">How to play</button>
@@ -154,7 +165,9 @@ export function mountUi(root: HTMLElement): void {
         <ul class="howto">
           <li>Aim with the pointer. Hold to fire, or switch on auto-fire.</li>
           <li>Drones weave. Missiles dive. Swarms split.</li>
-          <li>Clear a wave, then pick one upgrade. They stack.</li>
+          <li>A level sends several waves. It ends when the last wave is clear.</li>
+          <li>Endless mode still offers an upgrade between waves.</li>
+          <li>EMP is a tap. It stuns and damages nearby drones, then cools down.</li>
         </ul>
         <p class="keys">Space fires · F auto-fire · M mute</p>
         <button type="button" class="ghost" id="howto-close">Close</button>
@@ -165,6 +178,11 @@ export function mountUi(root: HTMLElement): void {
         <p class="eyebrow">Campaign</p>
         <h2>Level map</h2>
         <p class="sub" id="map-coins"></p>
+        <div class="diff" role="group" aria-label="Difficulty">
+          <button type="button" data-diff="easy">Easy</button>
+          <button type="button" data-diff="medium">Medium</button>
+          <button type="button" data-diff="hard">Hard</button>
+        </div>
         <div class="map" id="map-nodes"></div>
         <div class="stack row">
           <button type="button" class="ghost" id="map-back">Menu</button>
@@ -179,6 +197,9 @@ export function mountUi(root: HTMLElement): void {
         <p class="sub" id="shop-coins"></p>
         <div class="choices" id="shop-weapons"></div>
         <div class="choices" id="shop-ranks"></div>
+        <p class="eyebrow skins-label">Missile skins</p>
+        <p class="sub">Colours and trails for homing missiles.</p>
+        <div class="skin-grid" id="shop-skins"></div>
         <button type="button" class="ghost" id="shop-back">Back</button>
       </div>
     </section>
@@ -313,6 +334,15 @@ export function mountUi(root: HTMLElement): void {
     if (howto && !howto.hidden && !howtoOpen?.contains(target) && !howto.contains(target)) setSheet(howto, false, howtoOpen)
   })
 
+  root.querySelectorAll<HTMLButtonElement>('[data-diff]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const id = button.dataset.diff
+      if (id !== 'easy' && id !== 'medium' && id !== 'hard') return
+      audio.unlock()
+      emitCommand({ type: 'set-difficulty', id })
+    })
+  })
+
   campaignBtn?.addEventListener('click', () => {
     closeSheets()
     audio.unlock()
@@ -378,7 +408,6 @@ export function mountUi(root: HTMLElement): void {
     })
   }
 
-  let latest: Snapshot | null = null
   let phase: Snapshot['phase'] | null = null
   const map = root.querySelector<HTMLElement>('#map')
   const shop = root.querySelector<HTMLElement>('#shop')
@@ -458,7 +487,8 @@ export function mountUi(root: HTMLElement): void {
       scoreEl.textContent = scoreText
       seen.score = scoreText
     }
-    const waveText = snapshot.wave > 0 ? String(snapshot.wave) : '–'
+    const waveText =
+      snapshot.waveCount > 1 ? `${Math.max(1, snapshot.wave)}/${snapshot.waveCount}` : snapshot.wave > 0 ? String(snapshot.wave) : '–'
     if (seen.wave !== waveText && waveEl) {
       waveEl.textContent = waveText
       seen.wave = waveText
@@ -471,6 +501,14 @@ export function mountUi(root: HTMLElement): void {
       seen.combo = comboText
     }
     const hp = String(Math.max(0, snapshot.cityHp / snapshot.cityMax))
+    const bossRow = root.querySelector<HTMLElement>('#boss-row')
+    const bossFill = root.querySelector<HTMLElement>('#boss-fill')
+    if (bossRow && bossFill) {
+      const showBoss = snapshot.phase === 'playing' && snapshot.bossMax > 0
+      bossRow.hidden = !showBoss
+      if (showBoss) bossFill.style.transform = `scaleX(${Math.max(0, snapshot.bossHp / snapshot.bossMax)})`
+    }
+    paintDifficulty(root, snapshot.difficulty)
     if (seen.hp !== hp && hpFill) {
       hpFill.style.transform = `scaleX(${hp})`
       const ratio = snapshot.cityHp / snapshot.cityMax
@@ -529,12 +567,13 @@ export function mountUi(root: HTMLElement): void {
     }
     if (menuHaptics) setHaptics(menuHaptics, loadSave().haptics)
     if (snapshot.phase === 'armoury') {
-      const shopKey = `${snapshot.coins}:${snapshot.weapon}:${snapshot.ownedLaser}:${snapshot.ownedMissile}:${snapshot.ownedEmp}`
+      const shopKey = `${snapshot.coins}:${snapshot.weapon}:${snapshot.ownedLaser}:${snapshot.ownedMissile}:${snapshot.ownedEmp}:${snapshot.missileSkin}:${snapshot.ownedSkinKey}`
       if (shopKey !== root.dataset.shop) {
         root.dataset.shop = shopKey
         fillShop(root)
       }
     }
+    paintEmpHint(root, snapshot)
     paintWeaponRow(root, snapshot)
     if (flashEl) flashEl.style.opacity = String(snapshot.flash * 0.72)
   })
@@ -562,6 +601,9 @@ export function mountUi(root: HTMLElement): void {
   })
 }
 
+let empHintShown = false
+let latest: Snapshot | null = null
+
 function wireWeapons(root: HTMLElement): void {
   const row = root.querySelector('#weapons')
   if (!row) return
@@ -576,13 +618,50 @@ function wireWeapons(root: HTMLElement): void {
     button.type = 'button'
     button.className = 'hud-btn'
     button.dataset.weapon = item.id
-    button.textContent = item.label
-    button.addEventListener('click', () => {
+    const sub = item.id === 'emp' ? '<span class="weapon-sub" hidden>Tap</span>' : ''
+    const ring =
+      item.id === 'emp'
+        ? '<span class="cd-ring" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><circle class="cd-track" cx="8" cy="8" r="6"/><circle class="cd-sweep" cx="8" cy="8" r="6"/></svg></span>'
+        : ''
+    button.innerHTML = `${ring}<span class="weapon-label">${item.label}</span>${sub}`
+    let lastEmpTap = 0
+    const fireEmpTap = (event: Event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const now = performance.now()
+      if (now - lastEmpTap < 400) return
+      lastEmpTap = now
       audio.unlock()
+      emitCommand({ type: 'fire-emp' })
+    }
+    if (item.id === 'emp') {
+      button.addEventListener('pointerup', fireEmpTap)
+      button.addEventListener('click', fireEmpTap)
+    }
+    button.addEventListener('click', () => {
+      if (item.id === 'emp') return
+      audio.unlock()
+      const snap = latest
+      if (snap && snap.weapon === item.id && snap.phase === 'playing') {
+        emitCommand({ type: 'tap-fire' })
+        return
+      }
       emitCommand({ type: 'equip', id: item.id })
     })
     row.appendChild(button)
   }
+}
+
+function paintEmpHint(root: HTMLElement, snapshot: Snapshot): void {
+  const hint = root.querySelector<HTMLElement>('#weapon-hint')
+  if (!hint || empHintShown || snapshot.weapon !== 'emp' || loadSave().empHintSeen) return
+  empHintShown = true
+  hint.hidden = false
+  hint.textContent = 'EMP: stuns and damages all drones nearby. Tap to fire.'
+  window.setTimeout(() => {
+    hint.hidden = true
+  }, 4800)
+  emitCommand({ type: 'mark-emp-hint' })
 }
 
 function paintWeaponRow(root: HTMLElement, snapshot: Snapshot): void {
@@ -597,9 +676,32 @@ function paintWeaponRow(root: HTMLElement, snapshot: Snapshot): void {
     const has = owned[id]
     button.hidden = !has
     button.classList.toggle('on', snapshot.weapon === id)
-    if (id === 'emp') {
-      button.textContent = snapshot.empCd > 0.15 ? `EMP ${snapshot.empCd.toFixed(1)}` : 'EMP'
+    const ring = button.querySelector<HTMLElement>('.cd-ring')
+    const sub = button.querySelector<HTMLElement>('.weapon-sub')
+    if (id !== 'emp') {
+      if (ring) ring.hidden = true
+      button.setAttribute('aria-label', button.querySelector('.weapon-label')?.textContent ?? id)
+      return
     }
+    const cooling = snapshot.empCd > 0.12 && snapshot.empMax > 0
+    const p = cooling ? Math.round((snapshot.empCd / snapshot.empMax) * 100) : 0
+    if (ring) {
+      ring.hidden = !cooling
+      ring.style.setProperty('--p', String(p))
+    }
+    if (sub) sub.hidden = cooling || snapshot.weapon !== 'emp'
+    button.setAttribute(
+      'aria-label',
+      cooling ? `EMP cooling down, ${snapshot.empCd.toFixed(1)} seconds` : 'EMP, tap to fire',
+    )
+  })
+}
+
+function paintDifficulty(root: HTMLElement, difficulty: Difficulty): void {
+  root.querySelectorAll<HTMLButtonElement>('[data-diff]').forEach((button) => {
+    const on = button.dataset.diff === difficulty
+    button.classList.toggle('on', on)
+    button.setAttribute('aria-pressed', on ? 'true' : 'false')
   })
 }
 
@@ -671,6 +773,39 @@ function fillShop(root: HTMLElement): void {
     })
     ranks.appendChild(button)
   }
+  const skins = root.querySelector('#shop-skins')
+  if (!skins) return
+  skins.replaceChildren()
+  for (const skin of MISSILE_SKINS) {
+    const owned = save.ownedSkins[skin.id]
+    const equipped = save.missileSkin === skin.id
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'skin-card'
+    if (equipped) button.classList.add('on')
+    const badge = equipped ? 'Equipped' : owned ? 'Unlocked' : 'Locked'
+    const action = equipped ? 'Equipped' : owned ? 'Equip' : `${skin.cost} coins`
+    button.disabled = !owned && skin.cost > save.coins
+    button.innerHTML = `<span class="badge">${badge}</span>${skinPreview(skin.id)}<span class="choice-name">${skin.name}</span><span class="choice-blurb">${skin.blurb}</span><span class="choice-stat">${action}</span>`
+    button.addEventListener('click', () => {
+      audio.unlock()
+      emitCommand({ type: 'buy-skin', id: skin.id })
+    })
+    skins.appendChild(button)
+  }
+}
+
+function skinPreview(id: MissileSkinId): string {
+  if (id === 'flare') {
+    return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><path d="M6 18h62" stroke="#ff6a2a" stroke-width="7" stroke-linecap="round"/><path d="M70 18l34-12v24z" fill="#ffb15a"/><path d="M78 18l16-6v12z" fill="#fff6d2"/></svg>'
+  }
+  if (id === 'needle') {
+    return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><path d="M4 18h92" stroke="#f7fbff" stroke-width="2"/><path d="M96 18l20-4v8z" fill="#9af6ff"/></svg>'
+  }
+  if (id === 'comet') {
+    return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><circle cx="28" cy="18" r="3" fill="#ffb15a"/><circle cx="48" cy="18" r="4" fill="#e4d8ff"/><circle cx="70" cy="18" r="5" fill="#c9a6ff"/><circle cx="96" cy="18" r="8" fill="#6a4cff"/><circle cx="99" cy="16" r="3" fill="#f4f1ea"/></svg>'
+  }
+  return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><path d="M8 18h64" stroke="#9af6ff" stroke-width="3" stroke-linecap="round"/><path d="M74 18l28-9 6 9-6 9z" fill="#f4f1ea"/></svg>'
 }
 
 function fillClear(root: HTMLElement, snapshot: Snapshot): void {
@@ -679,7 +814,10 @@ function fillClear(root: HTMLElement, snapshot: Snapshot): void {
   const detail = root.querySelector('#clear-detail')
   if (title) title.textContent = snapshot.levelName || 'Sky held'
   if (stars) stars.textContent = '★★★'.slice(0, snapshot.clearStars) + '☆☆☆'.slice(snapshot.clearStars)
-  if (detail) detail.textContent = `+${formatInt(snapshot.clearCoins)} coins · ${formatInt(snapshot.coins)} total`
+  if (detail) {
+    const name = snapshot.difficulty === 'easy' ? 'Easy' : snapshot.difficulty === 'hard' ? 'Hard' : 'Medium'
+    detail.textContent = `${name} · +${formatInt(snapshot.clearCoins)} coins · ${formatInt(snapshot.coins)} total`
+  }
 }
 
 async function showDailyCard(root: HTMLElement, snapshot: Snapshot): Promise<void> {

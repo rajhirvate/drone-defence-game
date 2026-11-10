@@ -1,4 +1,5 @@
-import type { UpgradeId, WeaponId } from './config'
+import type { MissileSkinId, UpgradeId, WeaponId } from './config'
+import type { Difficulty } from './pace'
 
 export type Phase = 'menu' | 'map' | 'armoury' | 'playing' | 'upgrade' | 'clear' | 'gameover'
 
@@ -45,6 +46,7 @@ export interface Enemy {
   killX: number
   seed: number
   stun: number
+  empMark: number
 }
 
 export interface Bullet {
@@ -62,6 +64,7 @@ export interface Bullet {
   flak: boolean
   homing: boolean
   turn: number
+  skin: MissileSkinId
 }
 
 export interface Particle {
@@ -109,6 +112,11 @@ export interface Snapshot {
   score: number
   best: number
   wave: number
+  /** Campaign levels report how many waves the level has. 0 elsewhere. */
+  waveCount: number
+  bossHp: number
+  bossMax: number
+  difficulty: Difficulty
   cityHp: number
   cityMax: number
   mult: number
@@ -149,6 +157,8 @@ export interface Snapshot {
   dailyDate: string
   dailyBest: number
   paused: boolean
+  missileSkin: MissileSkinId
+  ownedSkinKey: string
 }
 
 export type Command =
@@ -171,6 +181,11 @@ export type Command =
   | { type: 'to-map' }
   | { type: 'pause' }
   | { type: 'resume' }
+  | { type: 'fire-emp' }
+  | { type: 'tap-fire' }
+  | { type: 'buy-skin'; id: MissileSkinId }
+  | { type: 'mark-emp-hint' }
+  | { type: 'set-difficulty'; id: Difficulty }
 
 export function blankSnapshot(): Snapshot {
   return {
@@ -178,6 +193,10 @@ export function blankSnapshot(): Snapshot {
     score: 0,
     best: 0,
     wave: 0,
+    waveCount: 0,
+    bossHp: 0,
+    bossMax: 0,
+    difficulty: 'medium',
     cityHp: 100,
     cityMax: 100,
     mult: 1,
@@ -218,5 +237,7 @@ export function blankSnapshot(): Snapshot {
     dailyDate: '',
     dailyBest: 0,
     paused: false,
+    missileSkin: 'standard',
+    ownedSkinKey: '',
   }
 }

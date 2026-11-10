@@ -85,11 +85,31 @@ export function shellDamage(level: number): number {
 
 export type WeaponId = 'cannon' | 'laser' | 'missile' | 'emp'
 
+export type MissileSkinId = 'standard' | 'flare' | 'needle' | 'comet'
+
+export const MISSILE_SKINS = [
+  { id: 'standard', name: 'Standard', cost: 0, blurb: 'Cyan dart and a clean trail.' },
+  { id: 'flare', name: 'Flare', cost: 45, blurb: 'Wide amber body and a fire trail.' },
+  { id: 'needle', name: 'Needle', cost: 80, blurb: 'Slim bolt with a long white streak.' },
+  { id: 'comet', name: 'Comet', cost: 120, blurb: 'Violet head and a ring burst.' },
+] as const
+
+export function isMissileSkin(id: string): id is MissileSkinId {
+  return id === 'standard' || id === 'flare' || id === 'needle' || id === 'comet'
+}
+
 export const WEAPONS = {
   cannon: { name: 'Cannon', blurb: 'Rapid shells. Spread and damage ranks apply.' },
   laser: { name: 'Laser', blurb: 'A continuous beam.', tick: 0.12, damage: 1.4, range: 920 },
   missile: { name: 'Missile battery', blurb: 'Slow homing shells.', interval: 0.52, damage: 4, speed: 460, turn: 2.6 },
-  emp: { name: 'EMP', blurb: 'Stuns everything nearby.', cooldown: 7.2, radius: 230, stun: 2.3 },
+  emp: {
+    name: 'EMP',
+    blurb: 'Tap to fire. Stuns and damages nearby drones.',
+    cooldown: 7.2,
+    radius: 230,
+    stun: 2.3,
+    damage: 2,
+  },
 } as const
 
 export const SHOP = {

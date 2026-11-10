@@ -29,7 +29,7 @@ Asset URLs are relative (`base: './'`), so the same `dist/` folder works on a ho
 
 - **Aim:** move the mouse, or drag on a touch screen. The turret only fires into the sky.
 - **Fire:** hold the pointer or the space bar. **Auto-fire** (button or `F`) keeps shooting while you steer. Phones start with auto-fire on; desktops start with hold-to-fire. The choice is saved.
-- **Weapons:** `1` cannon, `2` laser, `3` homing missiles, `4` EMP. Laser, missiles, and EMP unlock by clearing campaign levels or by spending coins in the armoury.
+- **Weapons:** `1` cannon, `2` laser, `3` homing missiles, `4` EMP. Laser, missiles, and EMP unlock by clearing campaign levels or by spending coins in the armoury. Cannon, laser, and missiles fire while you hold or while auto-fire is on. EMP is a tap: it sends one expanding pulse that stuns and damages drones in range, then cools down. A ring on the EMP button shows the cooldown. Homing missiles can wear skins bought in the armoury; the equipped skin is saved with everything else.
 - **Campaign:** 12 hand-tuned levels on the map. Clear with city health left for up to 3 stars. Levels 5 and 10 are bosses. Coins from kills buy weapon unlocks and permanent cannon ranks.
 - **Endless:** the original survival mode. Between waves, pick Rapid Cycle, Flak Burst, or Heavy Rounds. Those picks last for the run and stack on top of armoury ranks.
 - **Daily challenge:** one seeded run per local calendar day, so everyone faces the same waves that day. Game over builds a PNG share card (score, wave, date, name, `window.location.origin`) and tries the Web Share API with the file. Otherwise it downloads the PNG and copies the link.
