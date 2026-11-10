@@ -91,10 +91,13 @@ test.describe('waves on a phone', () => {
     expect(mid.waveCount).toBe(4)
     await page.screenshot({ path: '/opt/cursor/artifacts/after-wave.png' })
 
+    await page.waitForFunction(() => window.__DRONE_DEBUG__?.wave === 4, null, { timeout: 70_000 })
+    await page.locator('#auto-btn').click()
     await page.waitForFunction(() => {
       const row = document.querySelector('#boss-row')
-      return row && !row.hidden && window.__DRONE_DEBUG__?.wave === 4
-    }, null, { timeout: 70_000 })
+      const boss = window.__DRONE_DEBUG__?.enemies?.find((enemy) => enemy.kind === 'carrier' || enemy.kind === 'armour')
+      return row && !row.hidden && boss && boss.hp > 20 && boss.y > 110 && boss.y < 560
+    }, null, { timeout: 25_000 })
     const boss = await page.evaluate(() => window.__DRONE_DEBUG__)
     expect(boss.phase).toBe('playing')
     expect(boss.wave).toBe(4)
