@@ -1,4 +1,6 @@
 import { isMissileSkin, type MissileSkinId, type WeaponId } from './config'
+import { LEVELS } from './campaign'
+import { difficultyFromSave, type Difficulty } from './pace'
 
 const SAVE_KEY = 'drone-defence.save'
 const LEGACY_BEST = 'drone-defence.best'
@@ -6,8 +8,8 @@ const LEGACY_MUTE = 'drone-defence.muted'
 const LEGACY_AUTO = 'drone-defence.autofire'
 
 export interface SaveData {
-  /** 2 is the previous save. 3 adds missile skins and the EMP hint flag. */
-  v: 2 | 3
+  /** 2 and 3 are older saves. 4 adds difficulty and a 50-level star list. */
+  v: 2 | 3 | 4
   coins: number
   /** Stars earned per level id. Index 0 is unused. */
   stars: number[]
@@ -25,13 +27,18 @@ export interface SaveData {
   missileSkin: MissileSkinId
   ownedSkins: Record<MissileSkinId, boolean>
   empHintSeen: boolean
+  difficulty: Difficulty
+}
+
+function emptyStars(): number[] {
+  return Array.from({ length: LEVELS.length + 1 }, () => 0)
 }
 
 function emptySave(): SaveData {
   return {
-    v: 3,
+    v: 4,
     coins: 0,
-    stars: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    stars: emptyStars(),
     unlocked: 1,
     owned: { cannon: true, laser: false, missile: false, emp: false },
     equipped: 'cannon',
@@ -45,6 +52,7 @@ function emptySave(): SaveData {
     missileSkin: 'standard',
     ownedSkins: { standard: true, flare: false, needle: false, comet: false },
     empHintSeen: false,
+    difficulty: 'medium',
   }
 }
 
@@ -71,7 +79,7 @@ function legacyBest(): number {
 
 function sanitize(raw: Partial<SaveData> | null): SaveData {
   const base = emptySave()
-  if (!raw || (raw.v !== 2 && raw.v !== 3)) return base
+  if (!raw || (raw.v !== 2 && raw.v !== 3 && raw.v !== 4)) return base
   base.coins = Math.max(0, Math.floor(raw.coins ?? 0))
   if (Array.isArray(raw.stars)) {
     for (let i = 1; i < base.stars.length; i++) {
@@ -79,7 +87,7 @@ function sanitize(raw: Partial<SaveData> | null): SaveData {
       base.stars[i] = n === 1 || n === 2 || n === 3 ? n : 0
     }
   }
-  base.unlocked = Math.min(12, Math.max(1, Math.floor(raw.unlocked ?? 1)))
+  base.unlocked = Math.min(LEVELS.length, Math.max(1, Math.floor(raw.unlocked ?? 1)))
   const owned = raw.owned
   if (owned) {
     base.owned.laser = owned.laser === true
@@ -115,6 +123,7 @@ function sanitize(raw: Partial<SaveData> | null): SaveData {
   if (typeof raw.missileSkin === 'string' && isMissileSkin(raw.missileSkin) && base.ownedSkins[raw.missileSkin]) {
     base.missileSkin = raw.missileSkin
   }
+  base.difficulty = difficultyFromSave(raw.difficulty)
   return base
 }
 
@@ -129,7 +138,7 @@ export function loadSave(): SaveData {
     try {
       const parsed = JSON.parse(raw) as Partial<SaveData>
       const save = sanitize(parsed)
-      if (parsed.v !== 3) saveGame(save)
+      if (parsed.v !== 4) saveGame(save)
       return save
     } catch {
       return migrate()

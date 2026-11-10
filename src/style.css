@@ -417,6 +417,40 @@ body.is-playing #game canvas {
 #hp-fill.mid { background: #ff8a3d; }
 #hp-fill.low { background: #ff3358; }
 
+#boss-fill {
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  transform: scaleX(1);
+  background: linear-gradient(90deg, #ff3358, #ffb15a);
+}
+
+.diff {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 8px 0 2px;
+}
+
+.diff button {
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(154, 246, 255, 0.35);
+  background: rgba(10, 16, 32, 0.55);
+  color: var(--paper, #f4f1ea);
+  font-family: var(--display);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.diff button.on {
+  background: var(--amber);
+  color: #1a1208;
+  border-color: var(--amber);
+}
+
 #banner {
   position: absolute;
   left: 50%;
@@ -830,13 +864,26 @@ body.touch-ui .keys-desktop { display: none !important; }
   margin-top: 8px;
 }
 
+#map .panel {
+  display: flex;
+  flex-direction: column;
+}
+
+#map .map {
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+  touch-action: pan-y;
+  padding-bottom: 8px;
+}
+
 .map .node {
   text-align: left;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(154, 246, 255, 0.24);
   border-radius: 14px;
   padding: 8px;
-  min-height: 78px;
+  min-height: 64px;
   display: grid;
   align-content: start;
   gap: 2px;

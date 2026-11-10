@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { audio } from '../audio'
 import { emitView, onCommand } from '../bridge'
-import { buildLevelWave, levelById } from '../campaign'
+import { LEVELS, WAVE_BREAK, buildLevelWave, campaignOutcome, eventHp, levelById } from '../campaign'
 import {
   BALANCE,
   BOSSES,
@@ -79,6 +79,9 @@ export class PlayScene extends Phaser.Scene {
   private score = 0
   private best = 0
   private wave = 0
+  private levelWave = 0
+  private levelWaveCount = 1
+  private waveBreak = 0
   private cityHp: number = BALANCE.cityMax
   private kills = 0
   private killsThisWave = 0
@@ -336,6 +339,13 @@ export class PlayScene extends Phaser.Scene {
           saveGame(this.save)
         }
         break
+      case 'set-difficulty':
+        if (this.save.difficulty !== command.id) {
+          this.save.difficulty = command.id
+          saveGame(this.save)
+          audio.play('ui')
+        }
+        break
       case 'buy-skin':
         this.buySkin(command.id)
         break
@@ -392,6 +402,9 @@ export class PlayScene extends Phaser.Scene {
     audio.play('ui')
     this.score = 0
     this.wave = 0
+    this.levelWave = 0
+    this.levelWaveCount = this.mode === 'campaign' ? levelById(this.levelId).waves : 0
+    this.waveBreak = 0
     this.cityHp = BALANCE.cityMax
     this.kills = 0
     this.mult = 1
@@ -429,18 +442,27 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private beginWave(): void {
-    this.wave += 1
     this.killsThisWave = 0
     this.waveDamage = 0
     this.awaitingClear = false
     this.clearDelay = 0
-    const spec =
-      this.mode === 'campaign' ? buildLevelWave(levelById(this.levelId)) : buildWave(this.wave, this.rng)
+    this.waveBreak = 0
+    let spec
+    if (this.mode === 'campaign') {
+      const level = levelById(this.levelId)
+      this.levelWave += 1
+      this.levelWaveCount = level.waves
+      this.wave = this.levelWave
+      spec = buildLevelWave(level, this.levelWave - 1, this.save.difficulty)
+      this.banner = this.levelWave === 1 ? level.name.toUpperCase() : `WAVE ${this.levelWave}/${level.waves}`
+    } else {
+      this.wave += 1
+      spec = buildWave(this.wave, this.rng)
+      this.banner = `WAVE ${this.wave}`
+    }
     this.speedMul = spec.speed
     this.spawns = spec.events
     this.queueIndex = 0
-    const level = this.mode === 'campaign' ? levelById(this.levelId) : null
-    this.banner = level ? level.name.toUpperCase() : `WAVE ${this.wave}`
     this.bannerT = BALANCE.bannerTime
     this.fireCooldown = 0
     this.waveClock = 0
@@ -475,6 +497,12 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private updateCombat(dt: number, firing: boolean): void {
+    if (this.waveBreak > 0) {
+      this.waveBreak -= dt
+      this.decayFx(dt)
+      if (this.waveBreak <= 0) this.beginWave()
+      return
+    }
     const teaching = this.tutorialStep === 0 || this.tutorialStep === 1
     if (!teaching) {
       this.waveClock += dt
@@ -693,6 +721,13 @@ export class PlayScene extends Phaser.Scene {
       armCarrier(e, { ...common, entryX: spot.targetX, y: -40 })
       this.carrierTimer = 1.4
     }
+    if (this.mode === 'campaign') {
+      const hp = eventHp(ev.kind, this.levelId, this.save.difficulty)
+      if (hp > 0) {
+        e.hp = hp
+        e.maxHp = hp
+      }
+    }
   }
 
   private entryPoint(ev: SpawnEvent): { x: number; y: number; targetX: number; targetY: number } {
@@ -903,8 +938,18 @@ export class PlayScene extends Phaser.Scene {
 
   private onWaveCleared(): void {
     if (this.phase !== 'playing') return
-    if (this.mode === 'campaign') this.finishLevel()
-    else if (this.mode === 'daily') this.beginWave()
+    if (this.mode === 'campaign') {
+      if (campaignOutcome(this.levelWave, this.levelWaveCount) === 'next') {
+        this.waveBreak = WAVE_BREAK
+        this.banner = `WAVE ${this.levelWave + 1}/${this.levelWaveCount}`
+        this.bannerT = WAVE_BREAK
+        this.awaitingClear = false
+        return
+      }
+      this.finishLevel()
+      return
+    }
+    if (this.mode === 'daily') this.beginWave()
     else this.openUpgrade()
   }
 
@@ -914,7 +959,7 @@ export class PlayScene extends Phaser.Scene {
     const bonus = level.coins + stars * 8
     this.save.coins += bonus
     this.save.stars[level.id] = Math.max(this.save.stars[level.id] ?? 0, stars)
-    if (level.id >= this.save.unlocked && level.id < 12) this.save.unlocked = level.id + 1
+    if (level.id >= this.save.unlocked && level.id < LEVELS.length) this.save.unlocked = level.id + 1
     if (level.grant) this.save.owned[level.grant] = true
     this.save.tutorialSeen = true
     this.tutorialStep = -1
@@ -1233,7 +1278,22 @@ export class PlayScene extends Phaser.Scene {
     v.phase = this.phase
     v.score = this.score
     v.best = this.best
-    v.wave = this.wave
+    v.wave = this.waveBreak > 0 ? Math.min(this.levelWaveCount, this.levelWave + 1) : this.wave
+    v.waveCount = this.mode === 'campaign' ? this.levelWaveCount : 0
+    v.difficulty = this.save.difficulty
+    let bossHp = 0
+    let bossMax = 0
+    for (let i = 0; i < this.enemies.length; i++) {
+      const enemy = this.enemies[i]
+      if (!enemy.active || enemy.attract) continue
+      if (enemy.kind !== 'carrier' && enemy.kind !== 'armour') continue
+      if (enemy.maxHp > bossMax) {
+        bossMax = enemy.maxHp
+        bossHp = enemy.hp
+      }
+    }
+    v.bossHp = Math.max(0, bossHp)
+    v.bossMax = bossMax
     v.cityHp = this.cityHp
     v.cityMax = BALANCE.cityMax
     v.mult = this.mult
@@ -1579,6 +1639,8 @@ export class PlayScene extends Phaser.Scene {
     const canvas = this.game?.canvas
     const api = {
       phase: this.phase,
+      wave: this.waveBreak > 0 ? Math.min(this.levelWaveCount, this.levelWave + 1) : this.wave,
+      waveCount: this.mode === 'campaign' ? this.levelWaveCount : 0,
       weapon: this.weapon,
       autoFire: this.autoFire,
       empCd: this.empCd,

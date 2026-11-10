@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "icons": "node scripts/make-icons.mjs",
-    "test": "node --experimental-strip-types --test src/emp.test.ts",
+    "test": "node --experimental-strip-types --test src/emp.test.ts src/pace.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

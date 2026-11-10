@@ -49,7 +49,8 @@ test.describe('mobile EMP', () => {
   test('one EMP tap hits drones in range, including offscreen and armoured', async ({ page }) => {
     await boot(page, { ...mainSave, equipped: 'emp', autoFire: true }, 412, 915)
     const migrated = await page.evaluate(() => JSON.parse(localStorage.getItem('drone-defence.save')))
-    expect(migrated.v).toBe(3)
+    expect(migrated.v).toBe(4)
+    expect(migrated.difficulty).toBe('medium')
     expect(migrated.coins).toBe(321)
     expect(migrated.unlocked).toBe(7)
     expect(migrated.stars[1]).toBe(3)

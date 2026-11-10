@@ -6,6 +6,7 @@ import { todayKey } from './daily'
 import { formatInt } from './math'
 import { renderShareCard, shareCard } from './sharecard'
 import { loadSave } from './storage'
+import type { Difficulty } from './pace'
 import type { Snapshot } from './types'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -85,6 +86,10 @@ export function mountUi(root: HTMLElement): void {
         <span class="k">City</span>
         <div class="hp-track" aria-hidden="true"><div id="hp-fill"></div></div>
       </div>
+      <div class="hp-row" id="boss-row" hidden>
+        <span class="k">Boss</span>
+        <div class="hp-track" aria-hidden="true"><div id="boss-fill"></div></div>
+      </div>
       <div class="weapon-row" id="weapons"></div>
       <p id="weapon-hint" class="weapon-hint" hidden></p>
       <div id="banner"></div>
@@ -124,6 +129,11 @@ export function mountUi(root: HTMLElement): void {
           <p class="eyebrow">Close-in battery</p>
           <h1 class="logo" id="title"><span id="title-a"></span><span id="title-b"></span></h1>
           <p class="tag">Hold the skyline.</p>
+          <div class="diff" role="group" aria-label="Difficulty">
+            <button type="button" data-diff="easy">Easy</button>
+            <button type="button" data-diff="medium">Medium</button>
+            <button type="button" data-diff="hard">Hard</button>
+          </div>
           <p class="keys keys-desktop">Space fires · F auto-fire · M mute</p>
         </div>
         <button type="button" class="primary play-btn" id="campaign">
@@ -155,7 +165,8 @@ export function mountUi(root: HTMLElement): void {
         <ul class="howto">
           <li>Aim with the pointer. Hold to fire, or switch on auto-fire.</li>
           <li>Drones weave. Missiles dive. Swarms split.</li>
-          <li>Clear a wave, then pick one upgrade. They stack.</li>
+          <li>A level sends several waves. It ends when the last wave is clear.</li>
+          <li>Endless mode still offers an upgrade between waves.</li>
           <li>EMP is a tap. It stuns and damages nearby drones, then cools down.</li>
         </ul>
         <p class="keys">Space fires · F auto-fire · M mute</p>
@@ -167,6 +178,11 @@ export function mountUi(root: HTMLElement): void {
         <p class="eyebrow">Campaign</p>
         <h2>Level map</h2>
         <p class="sub" id="map-coins"></p>
+        <div class="diff" role="group" aria-label="Difficulty">
+          <button type="button" data-diff="easy">Easy</button>
+          <button type="button" data-diff="medium">Medium</button>
+          <button type="button" data-diff="hard">Hard</button>
+        </div>
         <div class="map" id="map-nodes"></div>
         <div class="stack row">
           <button type="button" class="ghost" id="map-back">Menu</button>
@@ -318,6 +334,15 @@ export function mountUi(root: HTMLElement): void {
     if (howto && !howto.hidden && !howtoOpen?.contains(target) && !howto.contains(target)) setSheet(howto, false, howtoOpen)
   })
 
+  root.querySelectorAll<HTMLButtonElement>('[data-diff]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const id = button.dataset.diff
+      if (id !== 'easy' && id !== 'medium' && id !== 'hard') return
+      audio.unlock()
+      emitCommand({ type: 'set-difficulty', id })
+    })
+  })
+
   campaignBtn?.addEventListener('click', () => {
     closeSheets()
     audio.unlock()
@@ -462,7 +487,8 @@ export function mountUi(root: HTMLElement): void {
       scoreEl.textContent = scoreText
       seen.score = scoreText
     }
-    const waveText = snapshot.wave > 0 ? String(snapshot.wave) : '–'
+    const waveText =
+      snapshot.waveCount > 1 ? `${Math.max(1, snapshot.wave)}/${snapshot.waveCount}` : snapshot.wave > 0 ? String(snapshot.wave) : '–'
     if (seen.wave !== waveText && waveEl) {
       waveEl.textContent = waveText
       seen.wave = waveText
@@ -475,6 +501,14 @@ export function mountUi(root: HTMLElement): void {
       seen.combo = comboText
     }
     const hp = String(Math.max(0, snapshot.cityHp / snapshot.cityMax))
+    const bossRow = root.querySelector<HTMLElement>('#boss-row')
+    const bossFill = root.querySelector<HTMLElement>('#boss-fill')
+    if (bossRow && bossFill) {
+      const showBoss = snapshot.phase === 'playing' && snapshot.bossMax > 0
+      bossRow.hidden = !showBoss
+      if (showBoss) bossFill.style.transform = `scaleX(${Math.max(0, snapshot.bossHp / snapshot.bossMax)})`
+    }
+    paintDifficulty(root, snapshot.difficulty)
     if (seen.hp !== hp && hpFill) {
       hpFill.style.transform = `scaleX(${hp})`
       const ratio = snapshot.cityHp / snapshot.cityMax
@@ -663,6 +697,14 @@ function paintWeaponRow(root: HTMLElement, snapshot: Snapshot): void {
   })
 }
 
+function paintDifficulty(root: HTMLElement, difficulty: Difficulty): void {
+  root.querySelectorAll<HTMLButtonElement>('[data-diff]').forEach((button) => {
+    const on = button.dataset.diff === difficulty
+    button.classList.toggle('on', on)
+    button.setAttribute('aria-pressed', on ? 'true' : 'false')
+  })
+}
+
 function fillMap(root: HTMLElement): void {
   const save = loadSave()
   const coins = root.querySelector('#map-coins')
@@ -772,7 +814,10 @@ function fillClear(root: HTMLElement, snapshot: Snapshot): void {
   const detail = root.querySelector('#clear-detail')
   if (title) title.textContent = snapshot.levelName || 'Sky held'
   if (stars) stars.textContent = '★★★'.slice(0, snapshot.clearStars) + '☆☆☆'.slice(snapshot.clearStars)
-  if (detail) detail.textContent = `+${formatInt(snapshot.clearCoins)} coins · ${formatInt(snapshot.coins)} total`
+  if (detail) {
+    const name = snapshot.difficulty === 'easy' ? 'Easy' : snapshot.difficulty === 'hard' ? 'Hard' : 'Medium'
+    detail.textContent = `${name} · +${formatInt(snapshot.clearCoins)} coins · ${formatInt(snapshot.coins)} total`
+  }
 }
 
 async function showDailyCard(root: HTMLElement, snapshot: Snapshot): Promise<void> {
