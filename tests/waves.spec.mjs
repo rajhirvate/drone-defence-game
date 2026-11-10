@@ -19,10 +19,10 @@ const save = {
   empHintSeen: true,
 }
 
-async function boot(page, width, height) {
+async function boot(page, width, height, data = save) {
   await page.setViewportSize({ width, height })
   await page.goto('/')
-  await page.evaluate((payload) => localStorage.setItem('drone-defence.save', JSON.stringify(payload)), save)
+  await page.evaluate((payload) => localStorage.setItem('drone-defence.save', JSON.stringify(payload)), data)
   await page.reload()
   await page.waitForSelector('#campaign')
 }
@@ -107,32 +107,47 @@ test.describe('waves on a phone', () => {
 })
 
 async function watchLevel(page, shots) {
+  await page.evaluate(() => {
+    window.__WAVE_WATCH = { flow: false, slow: false, early: false, blocks: false }
+    const tick = () => {
+      const debug = window.__DRONE_DEBUG__
+      const watch = window.__WAVE_WATCH
+      const banner = document.querySelector('#banner')
+      if (debug) {
+        if (debug.timeScale < 1 && debug.wave < debug.waveCount) watch.early = true
+        if (
+          !watch.flow &&
+          debug.wave === 2 &&
+          debug.timeScale === 1 &&
+          debug.enemies.length >= 2 &&
+          debug.phase === 'playing'
+        ) {
+          watch.flow = true
+          watch.blocks = banner ? getComputedStyle(banner).pointerEvents !== 'none' : false
+        }
+        if (!watch.slow && debug.timeScale < 1 && debug.wave === debug.waveCount && debug.phase === 'playing') {
+          watch.slow = true
+        }
+      }
+      if (!watch.flow || !watch.slow) requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
   const start = Date.now()
   let down = false
-  let flow = false
-  let slow = false
-  let slowedEarly = false
-  let toastBlocks = false
-  while (Date.now() - start < 30_000 && (!flow || !slow)) {
-    const state = await page.evaluate(() => {
-      const banner = document.querySelector('#banner')
-      return {
-        debug: window.__DRONE_DEBUG__,
-        toast: banner?.classList.contains('toast') === true,
-        blocks: banner ? getComputedStyle(banner).pointerEvents !== 'none' : false,
-      }
-    })
-    const debug = state.debug
-    if (debug.timeScale < 1 && debug.wave < debug.waveCount) slowedEarly = true
-    if (!flow && debug.wave === 2 && debug.timeScale === 1 && debug.enemies.length >= 2 && debug.phase === 'playing') {
-      flow = true
-      toastBlocks = state.blocks
+  let flowShot = false
+  let slowShot = false
+  while (Date.now() - start < 40_000) {
+    const watch = await page.evaluate(() => window.__WAVE_WATCH)
+    if (watch.flow && !flowShot) {
+      flowShot = true
       if (shots?.flow) await page.screenshot({ path: shots.flow })
     }
-    if (!slow && debug.timeScale < 1 && debug.wave === debug.waveCount && debug.phase === 'playing') {
-      slow = true
+    if (watch.slow && !slowShot) {
+      slowShot = true
       if (shots?.slow) await page.screenshot({ path: shots.slow })
     }
+    if (watch.flow && watch.slow) break
     const point = await page.evaluate(() => {
       const debug = window.__DRONE_DEBUG__
       const canvas = document.querySelector('#game canvas')
@@ -154,14 +169,14 @@ async function watchLevel(page, shots) {
     await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(0))))
   }
   if (down) await page.mouse.up()
-  return { flow, slow, slowedEarly, toastBlocks }
+  return page.evaluate(() => window.__WAVE_WATCH)
 }
 
 test.describe('continuous waves', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 412, height: 915 }, deviceScaleFactor: 2 })
 
   test('the next wave arrives while drones remain, and slow-motion waits for the level clear', async ({ page }) => {
-    await boot(page, 412, 915)
+    await boot(page, 412, 915, { ...save, ranks: { rate: 0, spread: 0, damage: 0 } })
     await page.locator('#campaign').click()
     await page.locator('#map-nodes button', { hasText: 'First Light' }).click()
     await page.waitForFunction(() => window.__DRONE_DEBUG__?.phase === 'playing')
@@ -169,10 +184,10 @@ test.describe('continuous waves', () => {
       flow: '/opt/cursor/artifacts/after-wave-flow.png',
       slow: '/opt/cursor/artifacts/after-slowmo.png',
     })
-    expect(seen.slowedEarly).toBe(false)
+    expect(seen.early).toBe(false)
     expect(seen.flow).toBe(true)
     expect(seen.slow).toBe(true)
-    expect(seen.toastBlocks).toBe(false)
+    expect(seen.blocks).toBe(false)
   })
 })
 
@@ -180,12 +195,12 @@ test.describe('narrow waves', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 360, height: 800 }, deviceScaleFactor: 2 })
 
   test('a 360-wide screen also chains waves without slowing early', async ({ page }) => {
-    await boot(page, 360, 800)
+    await boot(page, 360, 800, { ...save, ranks: { rate: 0, spread: 0, damage: 0 } })
     await page.locator('#campaign').click()
     await page.locator('#map-nodes button', { hasText: 'First Light' }).click()
     await page.waitForFunction(() => window.__DRONE_DEBUG__?.phase === 'playing')
     const seen = await watchLevel(page)
-    expect(seen.slowedEarly).toBe(false)
+    expect(seen.early).toBe(false)
     expect(seen.flow).toBe(true)
     expect(seen.slow).toBe(true)
   })

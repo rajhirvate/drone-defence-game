@@ -471,7 +471,7 @@ body.is-playing #game canvas {
 #banner.show { opacity: 1; }
 
 #banner.toast {
-  top: calc(max(8px, env(safe-area-inset-top)) + 108px);
+  top: calc(max(8px, env(safe-area-inset-top)) + 158px);
   font-size: 13px;
   letter-spacing: 0.16em;
   padding: 4px 10px;
