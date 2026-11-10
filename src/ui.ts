@@ -519,6 +519,7 @@ export function mountUi(root: HTMLElement): void {
     if (seen.banner !== snapshot.banner && banner) {
       banner.textContent = snapshot.banner
       banner.classList.toggle('show', snapshot.banner.length > 0)
+      banner.classList.toggle('toast', /^WAVE\s+\d/i.test(snapshot.banner))
       seen.banner = snapshot.banner
     }
     const showBest = snapshot.newBest && snapshot.score > 0 && snapshot.phase === 'playing'

@@ -470,6 +470,18 @@ body.is-playing #game canvas {
 
 #banner.show { opacity: 1; }
 
+#banner.toast {
+  top: calc(max(8px, env(safe-area-inset-top)) + 108px);
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(10, 16, 32, 0.78);
+  border: 1px solid rgba(154, 246, 255, 0.35);
+  text-shadow: none;
+  pointer-events: none;
+}
+
 #tutorial {
   position: absolute;
   left: 50%;

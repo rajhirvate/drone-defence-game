@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { audio } from '../audio'
 import { emitView, onCommand } from '../bridge'
-import { LEVELS, WAVE_BREAK, buildLevelWave, campaignOutcome, eventHp, levelById } from '../campaign'
+import { CHAIN_LEAD, LEVELS, buildLevelWave, chainReady, eventHp, levelById, slowOnKill } from '../campaign'
 import {
   BALANCE,
   BOSSES,
@@ -81,7 +81,6 @@ export class PlayScene extends Phaser.Scene {
   private wave = 0
   private levelWave = 0
   private levelWaveCount = 1
-  private waveBreak = 0
   private cityHp: number = BALANCE.cityMax
   private kills = 0
   private killsThisWave = 0
@@ -404,7 +403,6 @@ export class PlayScene extends Phaser.Scene {
     this.wave = 0
     this.levelWave = 0
     this.levelWaveCount = this.mode === 'campaign' ? levelById(this.levelId).waves : 0
-    this.waveBreak = 0
     this.cityHp = BALANCE.cityMax
     this.kills = 0
     this.mult = 1
@@ -446,7 +444,6 @@ export class PlayScene extends Phaser.Scene {
     this.waveDamage = 0
     this.awaitingClear = false
     this.clearDelay = 0
-    this.waveBreak = 0
     let spec
     if (this.mode === 'campaign') {
       const level = levelById(this.levelId)
@@ -469,6 +466,41 @@ export class PlayScene extends Phaser.Scene {
     for (let i = 0; i < this.bullets.length; i++) this.bullets[i].active = false
     for (let i = 0; i < this.markers.length; i++) this.markers[i].active = false
     audio.play('wave')
+  }
+
+  /** Start the next wave immediately, leaving the previous drones in the air. */
+  private chainNextWave(): void {
+    const level = levelById(this.levelId)
+    this.levelWave += 1
+    this.levelWaveCount = level.waves
+    this.wave = this.levelWave
+    const spec = buildLevelWave(level, this.levelWave - 1, this.save.difficulty)
+    const first = spec.events.length ? spec.events[0].at : 0
+    const clock = this.waveClock
+    this.spawns = spec.events.map((event) => ({
+      ...event,
+      at: clock + CHAIN_LEAD + Math.max(0, event.at - first),
+    }))
+    this.queueIndex = 0
+    this.speedMul = spec.speed
+    this.awaitingClear = false
+    this.clearDelay = 0
+    this.banner = `WAVE ${this.levelWave}/${level.waves}`
+    this.bannerT = 0.75
+    audio.play('wave')
+  }
+
+  private queuedHostiles(): number {
+    let count = 0
+    for (let i = this.queueIndex; i < this.spawns.length; i++) {
+      if (this.spawns[i].kind !== 'marker') count++
+    }
+    return count
+  }
+
+  private maybeChainWave(): void {
+    if (!chainReady(this.queuedHostiles(), this.activeHostiles(), this.levelWave, this.levelWaveCount)) return
+    this.chainNextWave()
   }
 
   private pickUpgrade(id: UpgradeId): void {
@@ -497,12 +529,6 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private updateCombat(dt: number, firing: boolean): void {
-    if (this.waveBreak > 0) {
-      this.waveBreak -= dt
-      this.decayFx(dt)
-      if (this.waveBreak <= 0) this.beginWave()
-      return
-    }
     const teaching = this.tutorialStep === 0 || this.tutorialStep === 1
     if (!teaching) {
       this.waveClock += dt
@@ -548,7 +574,9 @@ export class PlayScene extends Phaser.Scene {
     this.decayFx(dt)
 
     if (this.phase !== 'playing') return
-    if (!this.awaitingClear && this.bannerT <= 0 && !this.hostilesRemain()) {
+    if (!teaching && this.mode === 'campaign') this.maybeChainWave()
+    const levelDone = this.mode !== 'campaign' || this.levelWave >= this.levelWaveCount
+    if (!this.awaitingClear && this.bannerT <= 0 && levelDone && !this.hostilesRemain()) {
       this.awaitingClear = true
       this.clearDelay = BALANCE.clearDelay
     }
@@ -861,7 +889,16 @@ export class PlayScene extends Phaser.Scene {
     this.burst(x, y, kind === 'carrier' || kind === 'armour' ? 'swarm' : kind, true)
     if (boss) this.burst(x, y, 'city', true)
     if (boss || kind === 'swarm' || kind === 'missile') this.kick(boss ? 0.01 : 0.004, boss ? 180 : 90)
-    if (boss || (this.mode === 'campaign' && !this.hostilesRemain())) this.celebrate(boss)
+    if (
+      slowOnKill({
+        mode: this.mode,
+        waveIndex: this.levelWave,
+        waveTotal: this.levelWaveCount,
+        hostilesRemain: this.hostilesRemain(),
+      })
+    ) {
+      this.celebrate(boss)
+    }
     this.noteTutorial(2)
     audio.play(boss ? 'bigboom' : 'boom')
   }
@@ -939,11 +976,8 @@ export class PlayScene extends Phaser.Scene {
   private onWaveCleared(): void {
     if (this.phase !== 'playing') return
     if (this.mode === 'campaign') {
-      if (campaignOutcome(this.levelWave, this.levelWaveCount) === 'next') {
-        this.waveBreak = WAVE_BREAK
-        this.banner = `WAVE ${this.levelWave + 1}/${this.levelWaveCount}`
-        this.bannerT = WAVE_BREAK
-        this.awaitingClear = false
+      if (this.levelWave < this.levelWaveCount) {
+        this.chainNextWave()
         return
       }
       this.finishLevel()
@@ -1278,7 +1312,7 @@ export class PlayScene extends Phaser.Scene {
     v.phase = this.phase
     v.score = this.score
     v.best = this.best
-    v.wave = this.waveBreak > 0 ? Math.min(this.levelWaveCount, this.levelWave + 1) : this.wave
+    v.wave = this.wave
     v.waveCount = this.mode === 'campaign' ? this.levelWaveCount : 0
     v.difficulty = this.save.difficulty
     let bossHp = 0
@@ -1639,8 +1673,9 @@ export class PlayScene extends Phaser.Scene {
     const canvas = this.game?.canvas
     const api = {
       phase: this.phase,
-      wave: this.waveBreak > 0 ? Math.min(this.levelWaveCount, this.levelWave + 1) : this.wave,
+      wave: this.wave,
       waveCount: this.mode === 'campaign' ? this.levelWaveCount : 0,
+      timeScale: this.timeScale,
       weapon: this.weapon,
       autoFire: this.autoFire,
       empCd: this.empCd,

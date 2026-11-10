@@ -18,7 +18,16 @@ export function levelById(id: number): LevelDef {
   return LEVELS[id - 1] ?? LEVELS[0]
 }
 
-export { DIFFICULTY, WAVE_BREAK, campaignOutcome, eventHp, waveCountFor } from './pace'
+export {
+  CHAIN_LEAD,
+  DIFFICULTY,
+  campaignOutcome,
+  chainReady,
+  droneCount,
+  eventHp,
+  slowOnKill,
+  waveCountFor,
+} from './pace'
 
 /** One sub-wave of a campaign level, already scaled by difficulty. */
 export function buildLevelWave(level: LevelDef, waveIndex: number, difficulty: Difficulty): WaveSpec {

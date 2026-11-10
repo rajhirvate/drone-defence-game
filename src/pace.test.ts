@@ -6,9 +6,12 @@ import {
   bossKind,
   buildWaveEvents,
   campaignOutcome,
+  chainReady,
   difficultyFromSave,
+  droneCount,
   estimateClearSeconds,
   eventHp,
+  slowOnKill,
   waveCountFor,
 } from './pace.ts'
 
@@ -65,17 +68,55 @@ test('missing or old difficulty values default to medium', () => {
   assert.equal(difficultyFromSave('hard'), 'hard')
 })
 
-test('medium clear times for levels 10, 25, 40 and 50', () => {
+test('slow-motion is only the last kill, and waves chain without a pause', () => {
+  const finalKill = { mode: 'campaign' as const, waveIndex: 4, waveTotal: 4, hostilesRemain: false }
+  assert.equal(slowOnKill(finalKill), true)
+  assert.equal(slowOnKill({ ...finalKill, hostilesRemain: true }), false)
+  assert.equal(slowOnKill({ ...finalKill, waveIndex: 3 }), false)
+  assert.equal(slowOnKill({ ...finalKill, waveIndex: 1, waveTotal: 3 }), false)
+  assert.equal(slowOnKill({ mode: 'endless', waveIndex: 6, waveTotal: 6, hostilesRemain: false }), false)
+  assert.equal(slowOnKill({ mode: 'daily', waveIndex: 2, waveTotal: 2, hostilesRemain: false }), false)
+  assert.equal(chainReady(0, 2, 1, 4), true)
+  assert.equal(chainReady(0, 0, 2, 4), true)
+  assert.equal(chainReady(1, 0, 2, 4), false)
+  assert.equal(chainReady(0, 3, 2, 4), false)
+  assert.equal(chainReady(0, 0, 4, 4), false)
+})
+
+test('each wave has strictly more drones than the one before it', () => {
+  for (const difficulty of ['easy', 'medium', 'hard'] as const) {
+    for (let id = 1; id <= 50; id++) {
+      let previous = 0
+      for (let wave = 0; wave < waveCountFor(id); wave++) {
+        const spawned = buildWaveEvents(id, wave, difficulty).filter((event) => event.kind === 'drone').length
+        const planned = droneCount(id, wave, difficulty)
+        assert.equal(spawned, planned)
+        if (wave > 0) {
+          assert.ok(spawned >= previous + 1, `${difficulty} L${id} wave ${wave}`)
+          assert.ok(spawned <= Math.max(previous + 1, Math.round(previous * 1.35)))
+        }
+        previous = spawned
+      }
+    }
+  }
+  const sample = [0, 1, 2, 3, 4].map((wave) => droneCount(25, wave, 'medium'))
+  console.log('level 25 medium drone counts', sample.join(', '))
+  assert.deepEqual(sample, [6, 8, 10, 13, 17])
+})
+
+test('medium clear times for levels 1, 10, 25, 40 and 50', () => {
   const times = {
+    1: estimateClearSeconds(1, 'medium'),
     10: estimateClearSeconds(10, 'medium'),
     25: estimateClearSeconds(25, 'medium'),
     40: estimateClearSeconds(40, 'medium'),
     50: estimateClearSeconds(50, 'medium'),
   }
   console.log('simulated medium clear seconds', times)
+  assert.ok(times[1] < times[10])
   assert.ok(times[10] < times[25])
   assert.ok(times[25] < times[40])
   assert.ok(times[40] >= 45 && times[40] <= 90)
   assert.ok(times[50] >= 45 && times[50] <= 90)
-  assert.ok(estimateClearSeconds(1, 'medium') < 30)
+  assert.ok(times[1] < 20)
 })

@@ -8,8 +8,11 @@ export const DIFFICULTY = {
   hard: { count: 1.35, speed: 1.22, hp: 1.4, rate: 1.28 },
 } as const
 
-export const WAVE_BREAK = 1.5
 export const CLEAR_DELAY = 0.65
+/** Next wave starts while this many hostiles from the current wave are still alive. */
+export const WAVE_OVERLAP = 2
+/** Seconds after the handoff before the next wave's first drone appears. */
+export const CHAIN_LEAD = 0.12
 
 export type PaceSide = 'top' | 'left' | 'right'
 export type PaceKind = 'drone' | 'missile' | 'swarm' | 'marker' | 'carrier' | 'armour'
@@ -83,6 +86,31 @@ export function bossKind(levelId: number): 'none' | 'carrier' | 'armour' {
 /** A level is still going until the wave index catches the last wave. Index is 1-based. */
 export function campaignOutcome(waveIndex: number, waveTotal: number): 'next' | 'clear' {
   return waveIndex < waveTotal ? 'next' : 'clear'
+}
+
+/** Slow-motion only on the kill that actually finishes the last wave of a level. */
+export function slowOnKill(args: {
+  mode: 'campaign' | 'endless' | 'daily'
+  waveIndex: number
+  waveTotal: number
+  hostilesRemain: boolean
+}): boolean {
+  if (args.mode !== 'campaign' || args.waveTotal <= 0) return false
+  return args.waveIndex >= args.waveTotal && !args.hostilesRemain
+}
+
+/** The next wave can start once this one has no spawns left and has thinned out. */
+export function chainReady(queued: number, alive: number, waveIndex: number, waveTotal: number): boolean {
+  return waveIndex < waveTotal && queued <= 0 && alive <= WAVE_OVERLAP
+}
+
+/** Drone count for one wave. Later waves are strictly larger, about +28%, and at least +1. */
+export function droneCount(levelId: number, waveIndex: number, difficulty: Difficulty): number {
+  const p = pressure(levelId)
+  const base = Math.max(3, Math.round((3.4 + p * 6.2) * DIFFICULTY[difficulty].count))
+  let count = base
+  for (let i = 0; i < waveIndex; i++) count = Math.max(count + 1, Math.round(count * 1.28))
+  return count
 }
 
 export function buildLevels(): LevelPace[] {
@@ -180,7 +208,7 @@ export function buildWaveEvents(levelId: number, waveIndex: number, difficulty: 
   const patternCycle = ['line', 'vee', 'stream', 'flank', 'swarm'] as const
   const pattern = patternCycle[(levelId + waveIndex) % patternCycle.length]
   const late = waveIndex / Math.max(1, waveCountFor(levelId) - 1)
-  const drones = Math.max(3, Math.round((4 + p * 10 + late * 3) * diff.count))
+  const drones = droneCount(levelId, waveIndex, difficulty)
   const stagger = (0.78 - p * 0.18) / diff.rate
   const start = 0.7
   const events = formation(pattern, drones, start, stagger, rand)
@@ -228,39 +256,52 @@ function fireInterval(rank: number): number {
   return Math.max(0.045, 0.13 * Math.pow(0.86, rank))
 }
 
+interface SimUnit {
+  at: number
+  hp: number
+  boss: boolean
+  spawned: boolean
+  left: number
+}
+
 /**
  * Seconds to clear a campaign level with max cannon ranks, auto-fire, and EMP on cooldown.
- * Mirrors the spawn list, the 12-hostile cap, bullet timing, and the breaks between waves.
+ * The next wave starts as the previous one thins out, so there is no pause between waves.
  */
 export function estimateClearSeconds(levelId: number, difficulty: Difficulty = 'medium'): number {
   const total = waveCountFor(levelId)
   const interval = fireInterval(MAX_RANK)
   const damage = 1 + MAX_RANK
   let clock = 0
+  let carry: SimUnit[] = []
   for (let w = 0; w < total; w++) {
-    const events = buildWaveEvents(levelId, w, difficulty).filter((e) => e.kind !== 'marker')
-    const queue = events.map((e) => ({
-      at: e.at,
-      hp: eventHp(e.kind, levelId, difficulty),
-      boss: e.kind === 'carrier' || e.kind === 'armour',
-      spawned: false,
-      left: eventHp(e.kind, levelId, difficulty),
-    }))
+    const raw = buildWaveEvents(levelId, w, difficulty).filter((e) => e.kind !== 'marker')
+    const first = raw.length ? raw[0].at : 0
+    const queue: SimUnit[] = raw.map((e) => {
+      const at = w === 0 ? e.at : CHAIN_LEAD + Math.max(0, e.at - first)
+      const hp = eventHp(e.kind, levelId, difficulty)
+      return { at, hp, boss: e.kind === 'carrier' || e.kind === 'armour', spawned: false, left: hp }
+    })
+    for (const leftover of carry) queue.push({ ...leftover, at: 0, spawned: true })
     let t = 0
     let shot = 0.15
     let emp = 1.2
     let guard = 0
-    while (queue.some((q) => q.left > 0) && guard < 40000) {
+    const last = w === total - 1
+    while (guard < 40000) {
+      const pending = queue.some((q) => !q.spawned)
+      const alive = queue.filter((q) => q.spawned && q.left > 0).length
+      if (!pending && (last ? alive === 0 : alive <= WAVE_OVERLAP)) break
       guard++
       t += 0.05
       shot -= 0.05
       emp -= 0.05
-      let alive = queue.filter((q) => q.spawned && q.left > 0).length
+      let spawnedAlive = queue.filter((q) => q.spawned && q.left > 0).length
       for (const q of queue) {
         if (q.spawned || q.at > t) continue
-        if (alive >= 12) break
+        if (spawnedAlive >= 12) break
         q.spawned = true
-        alive++
+        spawnedAlive++
       }
       if (emp <= 0) {
         emp = 7.2
@@ -285,8 +326,8 @@ export function estimateClearSeconds(levelId: number, difficulty: Difficulty = '
         pellets -= 1
       }
     }
-    clock += t + CLEAR_DELAY
-    if (w < total - 1) clock += WAVE_BREAK
+    clock += t
+    carry = queue.filter((q) => q.spawned && q.left > 0)
   }
-  return clock
+  return clock + CLEAR_DELAY
 }
