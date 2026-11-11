@@ -39,6 +39,14 @@ test.describe('hundred-level campaign', () => {
     await page.locator('#campaign').click()
     await page.locator('#map-nodes button').first().click()
     await page.waitForFunction(() => window.__DRONE_DEBUG__?.phase === 'playing')
+    await page.evaluate(() => window.__DRONE_DEBUG__.inject('shield'))
+    await page.waitForFunction(() => {
+      const banner = document.querySelector('#banner')
+      const title = banner && banner.classList.contains('show')
+      const shield = window.__DRONE_DEBUG__?.enemies?.find((enemy) => enemy.kind === 'shield' && enemy.shield > 0)
+      return !title && shield && shield.y > 280 && shield.y < 640
+    })
+    await page.screenshot({ path: '/opt/cursor/artifacts/after-shield-drone.png' })
     const start = Date.now()
     while (Date.now() - start < 4000) {
       await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(0))))
@@ -46,10 +54,6 @@ test.describe('hundred-level campaign', () => {
     const early = await page.evaluate(() => window.__DRONE_DEBUG__)
     expect(early.enemies.length).toBeGreaterThanOrEqual(8)
     await page.screenshot({ path: '/opt/cursor/artifacts/after-early-density.png' })
-
-    await page.evaluate(() => window.__DRONE_DEBUG__.inject('shield'))
-    await page.waitForFunction(() => window.__DRONE_DEBUG__?.enemies?.some((enemy) => enemy.kind === 'shield' && enemy.shield > 0))
-    await page.screenshot({ path: '/opt/cursor/artifacts/after-shield-drone.png' })
 
     await page.locator('#pause-btn').click()
     await page.locator('#pause:not([hidden])').waitFor()

@@ -1830,7 +1830,16 @@ export class PlayScene extends Phaser.Scene {
       bufferHeight: canvas?.height ?? 0,
       enemies: this.enemies
         .filter((e) => e.active && !e.attract)
-        .map((e) => ({ kind: e.kind, x: e.x, y: e.y, r: e.r, hp: e.hp, maxHp: e.maxHp, stun: e.stun })),
+        .map((e) => ({
+          kind: e.kind,
+          x: e.x,
+          y: e.y,
+          r: e.r,
+          hp: e.hp,
+          maxHp: e.maxHp,
+          shield: e.shield,
+          stun: e.stun,
+        })),
       pulses: this.empPulses.map((p) => ({ x: p.x, y: p.y, r: p.r, max: p.max, life: p.life })),
       bullets: this.bullets
         .filter((b) => b.active)
