@@ -177,113 +177,160 @@ export function mountUi(root: HTMLElement): void {
         <button type="button" class="text-btn" id="howto-open" aria-expanded="false" aria-controls="howto-sheet">How to play</button>
       </div>
       <div class="sheet howto-sheet" id="howto-sheet" hidden role="dialog" aria-label="How to play">
-        <p class="eyebrow">Field notes</p>
-        <h2>How to play</h2>
-        <ul class="howto">
-          <li>Aim with the pointer. Hold to fire, or switch on auto-fire.</li>
-          <li>Drones weave. Missiles dive. Swarms split.</li>
-          <li>A level sends several waves. It ends when the last wave is clear.</li>
-          <li>Endless mode still offers an upgrade between waves.</li>
-          <li>EMP is a tap. It stuns and damages nearby drones, then cools down.</li>
-        </ul>
-        <p class="keys">Space fires · F auto-fire · M mute</p>
-        <button type="button" class="ghost" id="howto-close">Close</button>
+        <div class="panel-head">
+          <p class="eyebrow">Field notes</p>
+          <h2>How to play</h2>
+        </div>
+        <div class="panel-body">
+          <ul class="howto">
+            <li>Aim with the pointer. Hold to fire, or switch on auto-fire.</li>
+            <li>Drones weave. Missiles dive. Swarms split.</li>
+            <li>A level sends several waves. It ends when the last wave is clear.</li>
+            <li>Endless mode still offers an upgrade between waves.</li>
+            <li>EMP is a tap. It stuns and damages nearby drones, then cools down.</li>
+          </ul>
+          <p class="keys">Space fires · F auto-fire · M mute</p>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="ghost" id="howto-close">Close</button>
+        </div>
       </div>
     </section>
     <section class="overlay" id="map" hidden>
       <div class="panel">
-        <p class="eyebrow">Campaign</p>
-        <h2>Level map</h2>
-        <p class="sub" id="map-coins"></p>
-        <div class="diff" role="group" aria-label="Difficulty">
-          <button type="button" data-diff="easy">Easy</button>
-          <button type="button" data-diff="medium">Medium</button>
-          <button type="button" data-diff="hard">Hard</button>
+        <div class="panel-head">
+          <p class="eyebrow">Campaign</p>
+          <h2>Level map</h2>
+          <p class="sub" id="map-coins"></p>
+          <div class="diff" role="group" aria-label="Difficulty">
+            <button type="button" data-diff="easy">Easy</button>
+            <button type="button" data-diff="medium">Medium</button>
+            <button type="button" data-diff="hard">Hard</button>
+          </div>
         </div>
-        <div class="map" id="map-nodes"></div>
-        <div class="stack row">
-          <button type="button" class="ghost" id="map-back">Menu</button>
-          <button type="button" class="primary" id="map-shop">Armoury</button>
+        <div class="panel-body">
+          <div class="map" id="map-nodes"></div>
+        </div>
+        <div class="panel-foot">
+          <div class="stack row">
+            <button type="button" class="ghost" id="map-back">Menu</button>
+            <button type="button" class="primary" id="map-shop">Armoury</button>
+          </div>
         </div>
       </div>
     </section>
     <section class="overlay" id="shop" hidden>
       <div class="panel">
-        <p class="eyebrow">Armoury</p>
-        <h2>Fit the battery</h2>
-        <p class="sub" id="shop-coins"></p>
-        <div class="choices" id="shop-weapons"></div>
-        <div class="choices" id="shop-ranks"></div>
-        <button type="button" class="ghost" id="shop-skins">Skins</button>
-        <button type="button" class="ghost" id="shop-back">Back</button>
+        <div class="panel-head">
+          <p class="eyebrow">Armoury</p>
+          <h2>Fit the battery</h2>
+          <p class="sub" id="shop-coins"></p>
+        </div>
+        <div class="panel-body">
+          <div class="choices" id="shop-weapons"></div>
+          <div class="choices" id="shop-ranks"></div>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="ghost" id="shop-skins">Skins</button>
+          <button type="button" class="ghost" id="shop-back">Back</button>
+        </div>
       </div>
     </section>
     <section class="overlay" id="clear" hidden>
       <div class="panel">
-        <p class="eyebrow">Level clear</p>
-        <h2 id="clear-title">Sky held</h2>
-        <p class="final" id="clear-stars">★★★</p>
-        <p class="sub" id="clear-detail"></p>
-        <div class="stack row">
-          <button type="button" class="primary" id="clear-retry">Retry</button>
-          <button type="button" class="primary" id="clear-next">Next</button>
+        <div class="panel-head">
+          <p class="eyebrow">Level clear</p>
+          <h2 id="clear-title">Sky held</h2>
+          <p class="final" id="clear-stars">★★★</p>
+          <p class="sub" id="clear-detail"></p>
         </div>
-        <div class="stack">
-          <button type="button" class="ghost" id="clear-map">Level map</button>
-          <button type="button" class="ghost" id="clear-skins">Skins</button>
-          <button type="button" class="ghost" id="clear-shop">Spend coins</button>
+        <div class="panel-body"></div>
+        <div class="panel-foot">
+          <div class="stack row">
+            <button type="button" class="primary" id="clear-retry">Retry</button>
+            <button type="button" class="primary" id="clear-next">Next</button>
+          </div>
+          <div class="stack">
+            <button type="button" class="ghost" id="clear-map">Level map</button>
+            <button type="button" class="ghost" id="clear-skins">Skins</button>
+            <button type="button" class="ghost" id="clear-shop">Spend coins</button>
+          </div>
         </div>
       </div>
     </section>
     <section class="overlay" id="upgrade" hidden>
       <div class="panel">
-        <p class="eyebrow">Between waves</p>
-        <h2>Choose an upgrade</h2>
-        <p class="sub" id="upgrade-sub"></p>
-        <div class="choices" id="choices"></div>
-        <button type="button" class="ghost" id="upgrade-skins">Skins</button>
+        <div class="panel-head">
+          <p class="eyebrow">Between waves</p>
+          <h2>Choose an upgrade</h2>
+          <p class="sub" id="upgrade-sub"></p>
+        </div>
+        <div class="panel-body">
+          <div class="choices" id="choices"></div>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="ghost" id="upgrade-skins">Skins</button>
+        </div>
       </div>
     </section>
     <section class="overlay" id="skins" hidden>
       <div class="panel">
-        <p class="eyebrow">Armoury</p>
-        <h2>Skins</h2>
-        <p class="sub" id="skins-coins"></p>
-        <p class="eyebrow skins-label">Missiles</p>
-        <div class="skin-grid" id="skins-grid"></div>
-        <p class="eyebrow skins-label">Turret</p>
-        <div class="skin-grid" id="turret-grid"></div>
-        <button type="button" class="ghost" id="skins-back">Back</button>
+        <div class="panel-head">
+          <p class="eyebrow">Armoury</p>
+          <h2>Skins</h2>
+          <p class="sub" id="skins-coins"></p>
+        </div>
+        <div class="panel-body">
+          <p class="eyebrow skins-label">Missiles</p>
+          <div class="skin-grid" id="skins-grid"></div>
+          <p class="eyebrow skins-label">Turret</p>
+          <div class="skin-grid" id="turret-grid"></div>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="ghost" id="skins-back">Back</button>
+        </div>
       </div>
     </section>
     <div id="skin-toast" class="skin-toast" hidden></div>
     <section class="overlay" id="pause" hidden>
       <div class="panel">
-        <p class="eyebrow">Battery hold</p>
-        <h2>Paused</h2>
-        <p class="sub">The sky waits.</p>
-        <div class="stack">
-          <button type="button" class="primary" id="resume">Resume</button>
-          <button type="button" class="ghost" id="pause-retry">Retry</button>
-          <button type="button" class="ghost" id="pause-menu">Menu</button>
+        <div class="panel-head">
+          <p class="eyebrow">Battery hold</p>
+          <h2>Paused</h2>
+        </div>
+        <div class="panel-body">
+          <p class="sub">The sky waits.</p>
+        </div>
+        <div class="panel-foot">
+          <div class="stack">
+            <button type="button" class="primary" id="resume">Resume</button>
+            <button type="button" class="ghost" id="pause-retry">Retry</button>
+            <button type="button" class="ghost" id="pause-menu">Menu</button>
+          </div>
         </div>
       </div>
     </section>
     <section class="overlay" id="over" hidden>
       <div class="panel">
-        <p class="eyebrow">Game over</p>
-        <h2>The skyline fell</h2>
-        <p class="final" id="final-score">0</p>
-        <p class="new-best" id="new-best" hidden>New best</p>
-        <p class="sub" id="final-detail"></p>
-        <p class="best-line">Best <strong id="over-best">0</strong></p>
-        <div class="stack">
-          <button type="button" class="primary" id="restart">Restart</button>
-          <button type="button" class="ghost" id="share">Share</button>
+        <div class="panel-head">
+          <p class="eyebrow">Game over</p>
+          <h2>The skyline fell</h2>
+          <p class="final" id="final-score">0</p>
+          <p class="new-best" id="new-best" hidden>New best</p>
+          <p class="sub" id="final-detail"></p>
+          <p class="best-line">Best <strong id="over-best">0</strong></p>
         </div>
-        <img id="card-preview" alt="Daily share card" hidden />
-        <p class="note" id="share-note" aria-live="polite"></p>
-        <input id="share-fallback" hidden readonly aria-label="Share text" />
+        <div class="panel-body">
+          <img id="card-preview" alt="Daily share card" hidden />
+          <p class="note" id="share-note" aria-live="polite"></p>
+          <input id="share-fallback" hidden readonly aria-label="Share text" />
+        </div>
+        <div class="panel-foot">
+          <div class="stack">
+            <button type="button" class="primary" id="restart">Restart</button>
+            <button type="button" class="ghost" id="share">Share</button>
+          </div>
+        </div>
       </div>
     </section>
   `
@@ -360,6 +407,12 @@ export function mountUi(root: HTMLElement): void {
     setSheet(settings, false, gear)
   })
   root.querySelector('#howto-close')?.addEventListener('click', () => setSheet(howto, false, howtoOpen))
+
+  for (const surface of root.querySelectorAll<HTMLElement>('.overlay, .howto-sheet, .panel-body')) {
+    surface.addEventListener('touchstart', (event) => event.stopPropagation(), { passive: true })
+    surface.addEventListener('touchmove', (event) => event.stopPropagation(), { passive: true })
+    surface.addEventListener('pointerdown', (event) => event.stopPropagation())
+  }
 
   const menu = root.querySelector<HTMLElement>('#menu')
   menu?.addEventListener('click', (event) => {

@@ -545,42 +545,91 @@ body.is-playing #game canvas {
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: center;
+  padding: 0;
+  pointer-events: auto;
+  background: rgba(7, 9, 20, 0.62);
+}
+
+body:has(.overlay:not(#menu):not([hidden])) #game,
+body:has(.overlay:not(#menu):not([hidden])) #game canvas,
+body:has(#howto-sheet:not([hidden])) #game,
+body:has(#howto-sheet:not([hidden])) #game canvas,
+body:has(#pause:not([hidden])) #game,
+body:has(#pause:not([hidden])) #game canvas {
+  pointer-events: none;
+}
+
+#menu.overlay {
+  align-items: flex-end;
   padding:
     max(12px, env(safe-area-inset-top))
     max(12px, env(safe-area-inset-right))
     max(12px, env(safe-area-inset-bottom))
     max(12px, env(safe-area-inset-left));
-  pointer-events: auto;
-  background: rgba(7, 9, 20, 0.62);
-}
-
-#menu.overlay {
-  align-items: flex-end;
   background:
     linear-gradient(180deg, rgba(7, 9, 20, 0.32) 0%, rgba(7, 9, 20, 0.02) 30%, rgba(7, 9, 20, 0.05) 52%, rgba(7, 9, 20, 0.62) 80%, rgba(7, 9, 20, 0.84) 100%);
 }
 
 .panel {
   width: min(560px, 100%);
-  max-height: calc(
-    100dvh
-    - max(12px, env(safe-area-inset-top))
-    - max(12px, env(safe-area-inset-bottom))
-    - 8px
-  );
-  overflow: auto;
-  touch-action: pan-y;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  touch-action: auto;
   background:
     linear-gradient(180deg, rgba(16, 26, 48, 0.94), rgba(8, 12, 24, 0.94));
   border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: clamp(12px, 2.6vw, 22px);
+  border-radius: 0;
+  padding: 0;
   box-shadow:
     0 0 0 1px rgba(255, 177, 90, 0.2),
     0 18px 50px rgba(0, 0, 0, 0.45),
     var(--glow);
+}
+
+.panel-head {
+  flex: none;
+  padding:
+    max(12px, env(safe-area-inset-top))
+    max(16px, env(safe-area-inset-right))
+    8px
+    max(16px, env(safe-area-inset-left));
+}
+
+.panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  padding:
+    4px
+    max(16px, env(safe-area-inset-right))
+    12px
+    max(16px, env(safe-area-inset-left));
+}
+
+.panel-foot {
+  flex: none;
+  display: grid;
+  gap: 8px;
+  padding:
+    10px
+    max(16px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+  background: rgba(8, 12, 24, 0.96);
+  border-top: 1px solid rgba(154, 246, 255, 0.2);
+  touch-action: manipulation;
 }
 
 .overlay:not([hidden]) .panel,
@@ -862,18 +911,27 @@ body.touch-ui .keys-desktop { display: none !important; }
 }
 
 .howto-sheet {
-  left: max(12px, env(safe-area-inset-left));
-  right: max(12px, env(safe-area-inset-right));
-  top: max(60px, calc(env(safe-area-inset-top) + 52px));
-  width: min(440px, calc(100% - 24px));
+  position: fixed;
+  z-index: 7;
+  left: 0;
+  right: 0;
+  top: 0;
   margin-inline: auto;
-  height: fit-content;
-  max-height: min(260px, 38vh);
-  overflow: auto;
-  padding: 14px;
+  width: min(560px, 100%);
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  transform: none;
+  animation: none;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 0;
 }
 
-.howto-sheet .ghost { margin-top: 10px; }
+.howto-sheet .panel-body { touch-action: pan-y; }
 
 .toggle {
   width: 100%;
@@ -914,16 +972,7 @@ body.touch-ui .keys-desktop { display: none !important; }
   margin-top: 8px;
 }
 
-#map .panel {
-  display: flex;
-  flex-direction: column;
-}
-
 #map .map {
-  overflow: auto;
-  min-height: 0;
-  flex: 1;
-  touch-action: pan-y;
   padding-bottom: 8px;
 }
 
@@ -1039,7 +1088,9 @@ body.touch-ui .keys-desktop { display: none !important; }
 @media (orientation: landscape) and (max-height: 520px) {
   h2 { font-size: 22px; }
   .eyebrow { margin-bottom: 0; }
-  .panel { padding: 8px 10px; }
+  .panel-head,
+  .panel-body,
+  .panel-foot { padding-left: 10px; padding-right: 10px; }
   .stack { gap: 6px; margin-top: 6px; }
   .choice { min-height: 44px; padding: 8px; }
   .choice-blurb { display: none; }
@@ -1048,34 +1099,22 @@ body.touch-ui .keys-desktop { display: none !important; }
   .map .node strong { font-size: 10px; }
   #banner { top: 46%; font-size: 28px; }
   #card-preview { max-height: 96px; object-fit: cover; object-position: left center; }
-  #map .panel,
-  #shop .panel,
-  #upgrade .panel,
-  #over .panel,
-  #clear .panel,
-  #pause .panel {
-    display: flex;
-    flex-direction: column;
+  .overlay:not(#menu) .panel,
+  .howto-sheet {
     width: min(900px, 100%);
-    max-height: 100%;
   }
-  #map .map,
-  #shop .panel,
-  #upgrade .choices {
-    min-height: 0;
-  }
-  #map .map { overflow: auto; }
   .map .node { min-height: 52px; padding: 5px; }
   .skin-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .skin-card .choice-blurb { display: none; }
   .howto-sheet {
-    top: 8px;
-    left: 50%;
-    right: auto;
-    width: min(460px, 52%);
-    max-height: calc(100% - 150px);
-    margin: 0;
-    translate: -50% 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    width: min(520px, 100%);
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    transform: none;
   }
   .logo {
     flex-direction: row;
@@ -1105,7 +1144,7 @@ body.touch-ui .keys-desktop { display: none !important; }
   .mode-card { min-height: 64px; padding: 8px; }
   .mode-name { font-size: 11px; }
   #howto-open { grid-area: foot; }
-  .howto-sheet { top: 8px; max-height: calc(100% - 16px); }
+  .howto-sheet { top: 0; max-height: 100dvh; }
   #tutorial { padding: 8px; }
 }
 
