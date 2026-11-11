@@ -25,7 +25,9 @@ export interface SaveData {
   unlocked: number
   owned: Record<WeaponId, boolean>
   equipped: WeaponId
-  ranks: { rate: number; spread: number; damage: number }
+  ranks: { rate: number; spread: number; damage: number; emp: number; vital: number }
+  /** Best score per level id. Index 0 is unused. */
+  bestLevel: number[]
   bestEndless: number
   dailyBest: Record<string, number>
   muted: boolean
@@ -58,7 +60,8 @@ function emptySave(): SaveData {
     unlocked: 1,
     owned: { cannon: true, laser: false, missile: false, emp: false },
     equipped: 'cannon',
-    ranks: { rate: 0, spread: 0, damage: 0 },
+    ranks: { rate: 0, spread: 0, damage: 0, emp: 0, vital: 0 },
+    bestLevel: emptyStars(),
     bestEndless: 0,
     dailyBest: {},
     muted: false,
@@ -118,6 +121,14 @@ function sanitize(raw: Partial<SaveData> | null): SaveData {
     base.ranks.rate = clampRank(raw.ranks.rate)
     base.ranks.spread = clampRank(raw.ranks.spread)
     base.ranks.damage = clampRank(raw.ranks.damage)
+    base.ranks.emp = clampRank(raw.ranks.emp)
+    base.ranks.vital = clampRank(raw.ranks.vital)
+  }
+  if (Array.isArray(raw.bestLevel)) {
+    for (let i = 1; i < base.bestLevel.length; i++) {
+      const n = raw.bestLevel[i]
+      if (typeof n === 'number' && n > 0) base.bestLevel[i] = Math.floor(n)
+    }
   }
   base.bestEndless = Math.max(0, Math.floor(raw.bestEndless ?? 0))
   if (raw.dailyBest && typeof raw.dailyBest === 'object') {

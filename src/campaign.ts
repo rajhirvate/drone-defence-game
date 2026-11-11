@@ -25,6 +25,7 @@ export {
   chainReady,
   droneCount,
   eventHp,
+  shieldFor,
   slowOnKill,
   waveCountFor,
 } from './pace'

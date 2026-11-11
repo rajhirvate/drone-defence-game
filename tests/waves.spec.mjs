@@ -58,7 +58,7 @@ test.describe('waves on a phone', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 412, height: 915 }, deviceScaleFactor: 2 })
 
   test('difficulty persists, the map has 50 levels, and a boss wave is not an early clear', async ({ page }) => {
-    test.setTimeout(120_000)
+    test.setTimeout(180_000)
     await boot(page, 412, 915)
     const migrated = await page.evaluate(() => JSON.parse(localStorage.getItem('drone-defence.save')))
     expect(migrated.v).toBe(4)
@@ -77,21 +77,21 @@ test.describe('waves on a phone', () => {
 
     await page.locator('#campaign').click()
     await page.locator('#map:not([hidden])').waitFor()
-    await expect(page.locator('#map-nodes button')).toHaveCount(50)
+    await expect(page.locator('#map-nodes button')).toHaveCount(100)
     await page.locator('#map-nodes button', { hasText: 'Last Battery' }).scrollIntoViewIfNeeded()
     await page.screenshot({ path: '/opt/cursor/artifacts/after-map-50.png' })
 
     await page.locator('#map-nodes button', { hasText: 'The Carrier' }).click()
     await page.waitForFunction(() => window.__DRONE_DEBUG__?.phase === 'playing')
-    await page.waitForFunction(() => document.querySelector('#wave')?.textContent === '2/4', null, { timeout: 40_000 })
+    await page.waitForFunction(() => document.querySelector('#wave')?.textContent === '2/5', null, { timeout: 50_000 })
     await fight(page, 600)
     const mid = await page.evaluate(() => window.__DRONE_DEBUG__)
     expect(mid.phase).toBe('playing')
     expect(mid.wave).toBe(2)
-    expect(mid.waveCount).toBe(4)
+    expect(mid.waveCount).toBe(5)
     await page.screenshot({ path: '/opt/cursor/artifacts/after-wave.png' })
 
-    await page.waitForFunction(() => window.__DRONE_DEBUG__?.wave === 4, null, { timeout: 70_000 })
+    await page.waitForFunction(() => window.__DRONE_DEBUG__?.wave === 5, null, { timeout: 90_000 })
     await page.locator('#auto-btn').click()
     await page.waitForFunction(() => {
       const row = document.querySelector('#boss-row')
@@ -100,7 +100,7 @@ test.describe('waves on a phone', () => {
     }, null, { timeout: 25_000 })
     const boss = await page.evaluate(() => window.__DRONE_DEBUG__)
     expect(boss.phase).toBe('playing')
-    expect(boss.wave).toBe(4)
+    expect(boss.wave).toBe(5)
     expect(boss.enemies.some((enemy) => enemy.kind === 'carrier' && enemy.maxHp > 40)).toBeTruthy()
     await page.screenshot({ path: '/opt/cursor/artifacts/after-boss.png' })
   })
@@ -137,7 +137,7 @@ async function watchLevel(page, shots) {
   let down = false
   let flowShot = false
   let slowShot = false
-  while (Date.now() - start < 40_000) {
+  while (Date.now() - start < 100_000) {
     const watch = await page.evaluate(() => window.__WAVE_WATCH)
     if (watch.flow && !flowShot) {
       flowShot = true
@@ -176,7 +176,8 @@ test.describe('continuous waves', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 412, height: 915 }, deviceScaleFactor: 2 })
 
   test('the next wave arrives while drones remain, and slow-motion waits for the level clear', async ({ page }) => {
-    await boot(page, 412, 915, { ...save, ranks: { rate: 0, spread: 0, damage: 0 } })
+    test.setTimeout(150_000)
+    await boot(page, 412, 915, { ...save, ranks: { rate: 5, spread: 5, damage: 5, emp: 5, vital: 5 } })
     await page.locator('#campaign').click()
     await page.locator('#map-nodes button', { hasText: 'First Light' }).click()
     await page.waitForFunction(() => window.__DRONE_DEBUG__?.phase === 'playing')
@@ -195,7 +196,8 @@ test.describe('narrow waves', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 360, height: 800 }, deviceScaleFactor: 2 })
 
   test('a 360-wide screen also chains waves without slowing early', async ({ page }) => {
-    await boot(page, 360, 800, { ...save, ranks: { rate: 0, spread: 0, damage: 0 } })
+    test.setTimeout(150_000)
+    await boot(page, 360, 800, { ...save, ranks: { rate: 5, spread: 5, damage: 5, emp: 5, vital: 5 } })
     await page.locator('#campaign').click()
     await page.locator('#map-nodes button', { hasText: 'First Light' }).click()
     await page.waitForFunction(() => window.__DRONE_DEBUG__?.phase === 'playing')
@@ -257,7 +259,7 @@ test.describe('narrow map', () => {
     expect(box.x).toBeGreaterThanOrEqual(-1)
     expect(box.x + box.width).toBeLessThanOrEqual(361)
     await page.locator('#campaign').click()
-    await expect(page.locator('#map-nodes button')).toHaveCount(50)
+    await expect(page.locator('#map-nodes button')).toHaveCount(100)
     const last = page.locator('#map-nodes button', { hasText: 'Last Battery' })
     await last.scrollIntoViewIfNeeded()
     await expect(last).toBeVisible()

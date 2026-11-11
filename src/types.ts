@@ -5,7 +5,18 @@ export type Phase = 'menu' | 'map' | 'armoury' | 'skins' | 'playing' | 'upgrade'
 
 export type GameMode = 'endless' | 'campaign' | 'daily'
 
-export type EnemyKind = 'drone' | 'missile' | 'swarm' | 'shard' | 'carrier' | 'armour'
+export type EnemyKind =
+  | 'drone'
+  | 'scout'
+  | 'tank'
+  | 'splitter'
+  | 'kamikaze'
+  | 'shield'
+  | 'missile'
+  | 'swarm'
+  | 'shard'
+  | 'carrier'
+  | 'armour'
 
 export type MoveMode = 'weave' | 'line' | 'arc' | 'shard' | 'flyby'
 
@@ -47,6 +58,8 @@ export interface Enemy {
   seed: number
   stun: number
   empMark: number
+  shield: number
+  maxShield: number
 }
 
 export interface Bullet {
@@ -167,6 +180,7 @@ export interface Snapshot {
 export type Command =
   | { type: 'start' }
   | { type: 'restart' }
+  | { type: 'next-level' }
   | { type: 'upgrade'; id: UpgradeId }
   | { type: 'toggle-mute' }
   | { type: 'toggle-autofire' }

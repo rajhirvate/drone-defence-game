@@ -49,6 +49,8 @@ const UPGRADE_ICON: Record<UpgradeId, string> = {
   rate: ICO.rate,
   spread: ICO.spread,
   damage: ICO.damage,
+  emp: ICO.emp,
+  vital: ICO.haptic,
 }
 
 function formatDay(iso: string): string {
@@ -159,7 +161,7 @@ export function mountUi(root: HTMLElement): void {
           <button type="button" class="mode-card" id="endless">
             <span class="mode-ico" aria-hidden="true">${ICO.endless}</span>
             <span class="mode-name">Endless</span>
-            <span class="mode-sub"><span class="mode-line">Best <strong id="menu-best">0</strong></span></span>
+            <span class="mode-sub" id="endless-sub"><span class="mode-line">Best <strong id="menu-best">0</strong></span></span>
           </button>
           <button type="button" class="mode-card" id="daily">
             <span class="mode-ico" aria-hidden="true">${ICO.daily}</span>
@@ -222,8 +224,12 @@ export function mountUi(root: HTMLElement): void {
         <h2 id="clear-title">Sky held</h2>
         <p class="final" id="clear-stars">★★★</p>
         <p class="sub" id="clear-detail"></p>
+        <div class="stack row">
+          <button type="button" class="primary" id="clear-retry">Retry</button>
+          <button type="button" class="primary" id="clear-next">Next</button>
+        </div>
         <div class="stack">
-          <button type="button" class="primary" id="clear-map">Level map</button>
+          <button type="button" class="ghost" id="clear-map">Level map</button>
           <button type="button" class="ghost" id="clear-skins">Skins</button>
           <button type="button" class="ghost" id="clear-shop">Spend coins</button>
         </div>
@@ -258,6 +264,7 @@ export function mountUi(root: HTMLElement): void {
         <p class="sub">The sky waits.</p>
         <div class="stack">
           <button type="button" class="primary" id="resume">Resume</button>
+          <button type="button" class="ghost" id="pause-retry">Retry</button>
           <button type="button" class="ghost" id="pause-menu">Menu</button>
         </div>
       </div>
@@ -427,6 +434,9 @@ export function mountUi(root: HTMLElement): void {
     emitCommand({ type: shopReturn === 'map' ? 'open-map' : 'back-menu' })
   })
   root.querySelector('#clear-map')?.addEventListener('click', () => emitCommand({ type: 'to-map' }))
+  root.querySelector('#clear-retry')?.addEventListener('click', () => emitCommand({ type: 'restart' }))
+  root.querySelector('#clear-next')?.addEventListener('click', () => emitCommand({ type: 'next-level' }))
+  root.querySelector('#pause-retry')?.addEventListener('click', () => emitCommand({ type: 'restart' }))
   root.querySelector('#skip-tutorial')?.addEventListener('click', () => emitCommand({ type: 'skip-tutorial' }))
   menuHaptics?.addEventListener('click', () => emitCommand({ type: 'toggle-haptics' }))
   pauseBtn?.addEventListener('click', () => emitCommand({ type: 'pause' }))
@@ -604,6 +614,16 @@ export function mountUi(root: HTMLElement): void {
     }
     const menuBest = root.querySelector('#menu-best')
     if (menuBest && snapshot.phase === 'menu') menuBest.textContent = formatInt(snapshot.best)
+    const endlessBtn = root.querySelector<HTMLButtonElement>('#endless')
+    const endlessSub = root.querySelector('#endless-sub')
+    if (endlessBtn && endlessSub && snapshot.phase === 'menu') {
+      const locked = loadSave().unlocked < 20
+      endlessBtn.disabled = locked
+      if (locked) endlessSub.textContent = 'Unlocks at level 20'
+      else if (!endlessSub.querySelector('#menu-best')) {
+        endlessSub.innerHTML = `Best <strong id="menu-best">${formatInt(snapshot.best)}</strong>`
+      }
+    }
     const dailyDate = root.querySelector('#menu-daily-date')
     const dailyBest = root.querySelector('#menu-daily-best')
     if (dailyDate && dailyBest && snapshot.phase === 'menu') {
@@ -789,7 +809,9 @@ function fillMap(root: HTMLElement): void {
     const stars = save.stars[level.id] ?? 0
     button.disabled = locked
     const starText = locked ? 'Locked' : '★★★'.slice(0, stars) + '☆☆☆'.slice(stars)
-    button.innerHTML = `<span class="k">${level.id}</span><strong>${level.name}</strong><span class="stars">${starText}</span>`
+    const best = save.bestLevel[level.id] ?? 0
+    const bestText = best > 0 ? `<span class="best">${formatInt(best)}</span>` : ''
+    button.innerHTML = `<span class="k">${level.id}</span><strong>${level.name}</strong><span class="stars">${starText}</span>${bestText}`
     button.addEventListener('click', () => {
       audio.unlock()
       emitCommand({ type: 'start-level', id: level.id })
@@ -825,8 +847,14 @@ function fillShop(root: HTMLElement): void {
     weapons.appendChild(button)
   }
   ranks.replaceChildren()
-  const rankIds: UpgradeId[] = ['rate', 'spread', 'damage']
-  const names = { rate: 'Rapid Cycle', spread: 'Flak Burst', damage: 'Heavy Rounds' }
+  const rankIds: UpgradeId[] = ['rate', 'spread', 'damage', 'emp', 'vital']
+  const names = {
+    rate: 'Rapid Cycle',
+    spread: 'Flak Burst',
+    damage: 'Heavy Rounds',
+    emp: 'EMP Cycle',
+    vital: 'City Plating',
+  }
   for (const id of rankIds) {
     const rank = save.ranks[id]
     const button = document.createElement('button')

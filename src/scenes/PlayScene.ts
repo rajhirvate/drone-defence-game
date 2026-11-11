@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { audio } from '../audio'
 import { emitView, onCommand } from '../bridge'
-import { CHAIN_LEAD, LEVELS, buildLevelWave, chainReady, eventHp, levelById, slowOnKill } from '../campaign'
+import { CHAIN_LEAD, LEVELS, buildLevelWave, chainReady, eventHp, levelById, shieldFor, slowOnKill } from '../campaign'
 import {
   BALANCE,
   BOSSES,
@@ -12,6 +12,8 @@ import {
   MISSILE_SKINS,
   TURRET_SKINS,
   WEAPONS,
+  cityMaxFor,
+  empCooldown,
   fireInterval,
   pelletCount,
   rankCost,
@@ -27,7 +29,8 @@ import {
 import { dailyRand, todayKey } from '../daily'
 import { paintAction, paintBackdrop, type ActionFrame, type BackdropFrame, type Beam } from '../draw'
 import { empReach, inEmpRadius } from '../emp'
-import { armArmour, armCarrier, armDrone, armFlyby, armMissile, armShard, armSwarm, makeEnemy, retune, stepEnemy } from '../entities/enemy'
+import { armArmour, armCarrier, armDrone, armFlyby, armKamikaze, armMissile, armScout, armShard, armShield, armSplitter, armSwarm, armTank, makeEnemy, retune, stepEnemy } from '../entities/enemy'
+import { applyHit, type HitSource } from '../hits'
 import { clamp, clampAim, lerpAngle, mulberry32 } from '../math'
 import { buildSkyline, roofAt, type Building, type Skyline } from '../skyline'
 import { defaultAutoFire, loadSave, saveGame, type SaveData } from '../storage'
@@ -91,6 +94,10 @@ export class PlayScene extends Phaser.Scene {
   private rateLevel = 0
   private spreadLevel = 0
   private damageLevel = 0
+  private empRank = 0
+  private vitalRank = 0
+  private boost = { rapid: 0, spread: 0, shield: 0, slow: 0 }
+  private drops: { x: number; y: number; kind: 'rapid' | 'spread' | 'shield' | 'slow'; life: number }[] = []
   private autoFire = false
   private muted = false
   private newBest = false
@@ -284,7 +291,15 @@ export class PlayScene extends Phaser.Scene {
     switch (command.type) {
       case 'start':
       case 'start-endless':
+        if (this.save.unlocked < 20) break
         this.mode = 'endless'
+        this.beginRun()
+        break
+      case 'next-level':
+        if (this.mode !== 'campaign') break
+        if (this.levelId >= LEVELS.length) break
+        this.levelId += 1
+        this.rng = mulberry32(4000 + this.levelId)
         this.beginRun()
         break
       case 'start-daily':
@@ -427,13 +442,17 @@ export class PlayScene extends Phaser.Scene {
     this.wave = 0
     this.levelWave = 0
     this.levelWaveCount = this.mode === 'campaign' ? levelById(this.levelId).waves : 0
-    this.cityHp = BALANCE.cityMax
+    this.cityHp = this.maxCity()
     this.kills = 0
     this.mult = 1
     this.comboTime = 0
     this.rateLevel = this.save.ranks.rate
     this.spreadLevel = this.save.ranks.spread
     this.damageLevel = this.save.ranks.damage
+    this.empRank = this.save.ranks.emp
+    this.vitalRank = this.save.ranks.vital
+    this.boost = { rapid: 0, spread: 0, shield: 0, slow: 0 }
+    this.drops = []
     this.newBest = false
     this.repairShown = 0
     this.cleanShown = 0
@@ -522,6 +541,43 @@ export class PlayScene extends Phaser.Scene {
     return count
   }
 
+  private maxCity(): number {
+    return cityMaxFor(this.vitalRank)
+  }
+
+  private empSeconds(): number {
+    return empCooldown(this.empRank)
+  }
+
+  private maybeDrop(x: number, y: number): void {
+    if (this.drops.length > 0 || Math.random() > 0.04) return
+    const roll = Math.random()
+    const kind = roll < 0.3 ? 'rapid' : roll < 0.55 ? 'spread' : roll < 0.8 ? 'shield' : 'slow'
+    this.drops.push({ x, y, kind, life: 7 })
+  }
+
+  private tickBoosts(dt: number): void {
+    if (this.boost.rapid > 0) this.boost.rapid = Math.max(0, this.boost.rapid - dt)
+    if (this.boost.spread > 0) this.boost.spread = Math.max(0, this.boost.spread - dt)
+    if (this.boost.slow > 0) this.boost.slow = Math.max(0, this.boost.slow - dt)
+    let write = 0
+    for (let i = 0; i < this.drops.length; i++) {
+      const drop = this.drops[i]
+      drop.life -= dt
+      drop.y += this.unit * 70 * dt
+      const near = Math.hypot(drop.x - this.turretX, drop.y - this.turretY) < this.unit * 46
+      if (near) {
+        if (drop.kind === 'shield') this.boost.shield = 1
+        else this.boost[drop.kind] = 5.5
+        this.popup(drop.kind.toUpperCase(), drop.x, drop.y, '#ffb15a')
+        audio.play('upgrade')
+        continue
+      }
+      if (drop.life > 0 && drop.y < this.groundY) this.drops[write++] = drop
+    }
+    this.drops.length = write
+  }
+
   private maybeChainWave(): void {
     if (!chainReady(this.queuedHostiles(), this.activeHostiles(), this.levelWave, this.levelWaveCount)) return
     this.chainNextWave()
@@ -529,9 +585,11 @@ export class PlayScene extends Phaser.Scene {
 
   private pickUpgrade(id: UpgradeId): void {
     if (this.phase !== 'upgrade') return
-    if (id === 'rate') this.rateLevel += 1
-    else if (id === 'spread') this.spreadLevel += 1
-    else this.damageLevel += 1
+    if (id === 'rate') this.rateLevel = Math.min(SHOP.maxRank, this.rateLevel + 1)
+    else if (id === 'spread') this.spreadLevel = Math.min(SHOP.maxRank, this.spreadLevel + 1)
+    else if (id === 'damage') this.damageLevel = Math.min(SHOP.maxRank, this.damageLevel + 1)
+    else if (id === 'emp') this.empRank = Math.min(SHOP.maxRank, this.empRank + 1)
+    else this.vitalRank = Math.min(SHOP.maxRank, this.vitalRank + 1)
     audio.play('upgrade')
     this.phase = 'playing'
     this.beginWave()
@@ -569,7 +627,7 @@ export class PlayScene extends Phaser.Scene {
     for (let i = 0; i < this.enemies.length; i++) {
       const e = this.enemies[i]
       if (!e.active || e.attract) continue
-      stepEnemy(e, dt, world)
+      stepEnemy(e, dt * (this.boost.slow > 0 ? 0.62 : 1), world)
     }
 
     this.laserOn = false
@@ -582,7 +640,8 @@ export class PlayScene extends Phaser.Scene {
     else if (firing) {
       this.fireCooldown -= dt
       let guard = 0
-      const interval = this.weapon === 'missile' ? WEAPONS.missile.interval : fireInterval(this.rateLevel)
+      const baseInterval = this.weapon === 'missile' ? WEAPONS.missile.interval : fireInterval(this.rateLevel)
+      const interval = baseInterval * (this.boost.rapid > 0 ? 0.62 : 1)
       while (this.fireCooldown <= 0 && guard < 3) {
         this.shoot()
         this.fireCooldown += interval
@@ -598,6 +657,7 @@ export class PlayScene extends Phaser.Scene {
     this.decayFx(dt)
 
     if (this.phase !== 'playing') return
+    this.tickBoosts(dt)
     if (!teaching && this.mode === 'campaign') this.maybeChainWave()
     const levelDone = this.mode !== 'campaign' || this.levelWave >= this.levelWaveCount
     if (!this.awaitingClear && this.bannerT <= 0 && levelDone && !this.hostilesRemain()) {
@@ -772,6 +832,15 @@ export class PlayScene extends Phaser.Scene {
     } else if (ev.kind === 'carrier') {
       armCarrier(e, { ...common, entryX: spot.targetX, y: -40 })
       this.carrierTimer = 1.4
+    } else if (ev.kind === 'scout' || ev.kind === 'tank' || ev.kind === 'splitter' || ev.kind === 'shield') {
+      const entryX = clamp(spot.targetX + (Math.random() - 0.5) * this.unit * 70, 16, this.viewW - 16)
+      const opts = { ...common, entryX, y: -24 }
+      if (ev.kind === 'scout') armScout(e, opts)
+      else if (ev.kind === 'tank') armTank(e, opts)
+      else if (ev.kind === 'splitter') armSplitter(e, opts)
+      else armShield(e, opts, 4)
+    } else if (ev.kind === 'kamikaze') {
+      armKamikaze(e, { ...common, arc: ev.arc, arcAmp: ev.arcAmp * this.viewW * 0.2 })
     }
     if (this.mode === 'campaign') {
       const hp = eventHp(ev.kind, this.levelId, this.save.difficulty)
@@ -779,6 +848,9 @@ export class PlayScene extends Phaser.Scene {
         e.hp = hp
         e.maxHp = hp
       }
+      const shield = shieldFor(ev.kind, this.levelId, this.save.difficulty)
+      e.shield = shield
+      e.maxShield = shield
     }
   }
 
@@ -803,7 +875,7 @@ export class PlayScene extends Phaser.Scene {
     const tipX = pivotX + c * this.barrel
     const tipY = pivotY + s * this.barrel
     const homing = this.weapon === 'missile'
-    const pellets = homing ? 1 : pelletCount(this.spreadLevel)
+    const pellets = (homing ? 1 : pelletCount(this.spreadLevel)) + (this.boost.spread > 0 && !homing ? 1 : 0)
     const step = spreadStep(this.spreadLevel)
     const start = -step * (pellets - 1) * 0.5
     const damage = homing ? WEAPONS.missile.damage + this.damageLevel : shellDamage(this.damageLevel)
@@ -859,8 +931,9 @@ export class PlayScene extends Phaser.Scene {
       b.life -= dt
       if (hit) {
         if (b.splash > 0) this.collectSplash(b, hit)
-        this.damageEnemy(hit, b.damage)
-        for (let s = 0; s < this.splashBuf.length; s++) this.damageEnemy(this.splashBuf[s], b.damage)
+        const source: HitSource = b.homing ? 'missile' : 'cannon'
+        this.damageEnemy(hit, b.damage, source)
+        for (let s = 0; s < this.splashBuf.length; s++) this.damageEnemy(this.splashBuf[s], b.damage, source)
         this.popRound(b)
         b.active = false
         continue
@@ -894,10 +967,16 @@ export class PlayScene extends Phaser.Scene {
     }
   }
 
-  private damageEnemy(e: Enemy, amount: number): void {
+  private damageEnemy(e: Enemy, amount: number, source: HitSource): void {
     if (!e.active || e.attract) return
-    e.hp -= amount
-    e.flash = 0.07
+    const hit = applyHit(e.hp, e.shield, amount, source)
+    e.hp = hit.hp
+    e.shield = hit.shield
+    e.flash = 0.12
+    if (hit.blocked) {
+      this.popup('SHIELD', e.x, e.y - e.r, '#9af6ff')
+      return
+    }
     if (amount >= 1) this.popup(String(Math.ceil(amount)), e.x + e.r * 0.4, e.y - e.r, '#ffffff')
     if (e.hp <= 0) this.killEnemy(e)
   }
@@ -907,12 +986,15 @@ export class PlayScene extends Phaser.Scene {
     const x = e.x
     const y = e.y
     e.active = false
-    if (kind === 'swarm' || kind === 'carrier') this.spawnShards(e)
+    if (kind === 'swarm' || kind === 'carrier' || kind === 'splitter') this.spawnShards(e)
     const boss = kind === 'carrier' || kind === 'armour'
+    this.maybeDrop(x, y)
     this.registerKill(e, x, y)
     this.burst(x, y, kind === 'carrier' || kind === 'armour' ? 'swarm' : kind, true)
     if (boss) this.burst(x, y, 'city', true)
-    if (boss || kind === 'swarm' || kind === 'missile') this.kick(boss ? 0.01 : 0.004, boss ? 180 : 90)
+    if (boss || kind === 'swarm' || kind === 'splitter' || kind === 'kamikaze' || kind === 'tank') {
+      this.kick(boss ? 0.014 : 0.006, boss ? 200 : 110)
+    }
     if (
       slowOnKill({
         mode: this.mode,
@@ -965,6 +1047,12 @@ export class PlayScene extends Phaser.Scene {
 
   private cityImpact(e: Enemy): void {
     e.active = false
+    if (this.boost.shield > 0) {
+      this.boost.shield = 0
+      this.popup('SHIELD', e.x, e.y, '#b6f27a')
+      audio.play('ui')
+      return
+    }
     this.cityHp = Math.max(0, this.cityHp - e.city)
     this.waveDamage += e.city
     this.hurt = 1
@@ -981,7 +1069,7 @@ export class PlayScene extends Phaser.Scene {
 
   private openUpgrade(): void {
     if (this.phase !== 'playing') return
-    const repair = Math.min(BALANCE.repair, BALANCE.cityMax - this.cityHp)
+    const repair = Math.min(BALANCE.repair, this.maxCity() - this.cityHp)
     this.cityHp += repair
     this.repairShown = repair
     this.bgDirty = true
@@ -1013,7 +1101,9 @@ export class PlayScene extends Phaser.Scene {
 
   private finishLevel(): void {
     const level = levelById(this.levelId)
-    const stars = starsFor(this.cityHp, BALANCE.cityMax)
+    const stars = starsFor(this.cityHp, this.maxCity())
+    const previousBest = this.save.bestLevel[level.id] ?? 0
+    if (this.score > previousBest) this.save.bestLevel[level.id] = this.score
     const bonus = level.coins + stars * 8
     this.save.coins += bonus
     this.save.stars[level.id] = Math.max(this.save.stars[level.id] ?? 0, stars)
@@ -1289,7 +1379,7 @@ export class PlayScene extends Phaser.Scene {
       groundY: this.groundY,
       tallest: this.tallest,
       buildings: this.buildings,
-      hpRatio: this.cityHp / BALANCE.cityMax,
+      hpRatio: this.cityHp / this.maxCity(),
     }
     paintBackdrop(this.cityGfx, frame)
   }
@@ -1328,6 +1418,7 @@ export class PlayScene extends Phaser.Scene {
       beams: this.beams,
       empPulses: this.empPulses,
       turretSkin: this.save.turretSkin,
+      drops: this.drops,
     }
     paintAction(this.fx, frame)
   }
@@ -1354,7 +1445,7 @@ export class PlayScene extends Phaser.Scene {
     v.bossHp = Math.max(0, bossHp)
     v.bossMax = bossMax
     v.cityHp = this.cityHp
-    v.cityMax = BALANCE.cityMax
+    v.cityMax = this.maxCity()
     v.mult = this.mult
     v.comboHot = this.comboTime > 0 && this.mult > 1
     v.kills = this.kills
@@ -1366,7 +1457,7 @@ export class PlayScene extends Phaser.Scene {
     v.newBest = this.newBest
     v.banner = this.banner
     v.hurt = this.hurt
-    v.low = this.cityHp > 0 && this.cityHp / BALANCE.cityMax <= 0.35
+    v.low = this.cityHp > 0 && this.cityHp / this.maxCity() <= 0.35
     v.repair = this.repairShown
     v.cleanBonus = this.cleanShown
     v.intervalMs = Math.round(fireInterval(this.rateLevel) * 1000)
@@ -1384,7 +1475,7 @@ export class PlayScene extends Phaser.Scene {
     v.ownedMissile = this.save.owned.missile
     v.ownedEmp = this.save.owned.emp
     v.empCd = this.empCd
-    v.empMax = WEAPONS.emp.cooldown
+    v.empMax = this.empSeconds()
     v.tutorial = this.tutorialStep >= 0 ? TUTORIAL[Math.min(3, this.tutorialStep)] : ''
     v.levelName = this.mode === 'campaign' ? levelById(this.levelId).name : ''
     v.clearStars = this.clearStars
@@ -1494,7 +1585,7 @@ export class PlayScene extends Phaser.Scene {
     if (!best) return
     this.laserTick -= dt
     if (this.laserTick <= 0) {
-      this.damageEnemy(best, WEAPONS.laser.damage + this.damageLevel * 0.4)
+      this.damageEnemy(best, WEAPONS.laser.damage + this.damageLevel * 0.4, 'laser')
       this.laserTick = WEAPONS.laser.tick
       this.spark(best.x, best.y, 0xff8aa0)
     }
@@ -1519,7 +1610,7 @@ export class PlayScene extends Phaser.Scene {
     this.lastEmpRadius = radius
     this.lastEmpStruck = []
     this.strikePulse(pulse)
-    this.empCd = WEAPONS.emp.cooldown
+    this.empCd = this.empSeconds()
     this.flash = 0.7
     this.kick(0.012, 200, true)
     audio.play('emp')
@@ -1535,7 +1626,7 @@ export class PlayScene extends Phaser.Scene {
       enemy.empMark = pulse.id
       enemy.stun = Math.max(enemy.stun, WEAPONS.emp.stun)
       enemy.flash = 0.45
-      this.damageEnemy(enemy, WEAPONS.emp.damage)
+      this.damageEnemy(enemy, WEAPONS.emp.damage, 'emp')
       this.lastEmpStruck.push({
         kind: enemy.kind,
         x: enemy.x,
@@ -1749,12 +1840,12 @@ export class PlayScene extends Phaser.Scene {
       lastEmpRadius: this.lastEmpRadius,
       missileSkin: this.save.missileSkin,
       coins: this.save.coins,
-      inject: (kind: 'drone' | 'missile' | 'armour' | 'swarm') => this.injectProbe(kind),
+      inject: (kind: 'drone' | 'missile' | 'armour' | 'swarm' | 'carrier' | 'scout' | 'shield') => this.injectProbe(kind),
     }
     ;(window as Window & { __DRONE_DEBUG__?: typeof api }).__DRONE_DEBUG__ = api
   }
 
-  private injectProbe(kind: 'drone' | 'missile' | 'armour' | 'swarm'): boolean {
+  private injectProbe(kind: 'drone' | 'missile' | 'armour' | 'swarm' | 'carrier' | 'scout' | 'shield'): boolean {
     if (this.phase !== 'playing') return false
     const e = this.takeEnemy()
     if (!e) return false
@@ -1768,9 +1859,24 @@ export class PlayScene extends Phaser.Scene {
       targetY: this.groundY,
     }
     if (kind === 'drone') armDrone(e, { ...common, entryX: common.x, y: -28 })
+    else if (kind === 'scout') armScout(e, { ...common, entryX: common.x, y: this.viewH * 0.28 })
+    else if (kind === 'shield') armShield(e, { ...common, entryX: common.x, y: this.viewH * 0.3 }, 6)
     else if (kind === 'missile') armMissile(e, { ...common, y: -16, arc: false, arcAmp: 0 })
     else if (kind === 'armour') armArmour(e, { ...common, y: this.viewH * 0.22, arc: true, arcAmp: 30 })
+    else if (kind === 'carrier') armCarrier(e, { ...common, entryX: common.x, y: this.viewH * 0.24 })
     else armSwarm(e, { ...common, entryX: this.viewW * 0.3, y: this.viewH * 0.3 })
+    if (this.mode === 'campaign') {
+      const hp = eventHp(kind, this.levelId, this.save.difficulty)
+      if (hp > 0) {
+        e.hp = hp
+        e.maxHp = hp
+      }
+      const shield = shieldFor(kind, this.levelId, this.save.difficulty)
+      if (shield > 0) {
+        e.shield = shield
+        e.maxShield = shield
+      }
+    }
     e.stun = 0
     e.empMark = 0
     return true

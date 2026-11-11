@@ -4,7 +4,7 @@ export const GAME_TITLE = 'Drone Defence'
 export const GAME_DESCRIPTION =
   'Arcade defence game. Aim a turret and shoot down fictional drones and missiles before they reach the city skyline.'
 
-export type UpgradeId = 'rate' | 'spread' | 'damage'
+export type UpgradeId = 'rate' | 'spread' | 'damage' | 'emp' | 'vital'
 
 export interface UpgradeDef {
   id: UpgradeId
@@ -27,6 +27,16 @@ export const UPGRADES: readonly UpgradeDef[] = [
     id: 'damage',
     name: 'Heavy Rounds',
     blurb: 'Each hit tears off more hull.',
+  },
+  {
+    id: 'emp',
+    name: 'EMP Cycle',
+    blurb: 'The pulse cools down faster.',
+  },
+  {
+    id: 'vital',
+    name: 'City Plating',
+    blurb: 'The skyline holds more damage.',
   },
 ]
 
@@ -139,8 +149,21 @@ export function rankCost(rank: number): number {
   return SHOP.rankBase * (rank + 1)
 }
 
+export function empCooldown(rank: number): number {
+  return WEAPONS.emp.cooldown * Math.pow(0.88, Math.max(0, rank))
+}
+
+export function cityMaxFor(rank: number): number {
+  return BALANCE.cityMax + Math.max(0, rank) * 16
+}
+
 export const COINS = {
   drone: 4,
+  scout: 3,
+  tank: 7,
+  splitter: 8,
+  kamikaze: 5,
+  shield: 7,
   missile: 6,
   swarm: 8,
   shard: 2,

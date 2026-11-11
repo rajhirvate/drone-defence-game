@@ -57,6 +57,7 @@ export interface ActionFrame {
   beams: readonly Beam[]
   empPulses: readonly EmpPulseDraw[]
   turretSkin: TurretSkinId
+  drops: readonly { x: number; y: number; kind: string }[]
 }
 
 export interface Beam {
@@ -204,6 +205,14 @@ export function paintAction(g: Phaser.GameObjects.Graphics, f: ActionFrame): voi
   }
 
   drawTurret(g, f)
+  for (let i = 0; i < f.drops.length; i++) {
+    const drop = f.drops[i]
+    const color = drop.kind === 'rapid' ? 0xffb15a : drop.kind === 'spread' ? 0x9af6ff : drop.kind === 'shield' ? 0xb6f27a : 0xc9a6ff
+    g.fillStyle(color, 0.9)
+    g.fillCircle(drop.x, drop.y, Math.max(5, f.unit * 6))
+    g.lineStyle(Math.max(1, f.unit), 0xf7fbff, 0.8)
+    g.strokeCircle(drop.x, drop.y, Math.max(7, f.unit * 8))
+  }
   if (f.laserOn) {
     g.lineStyle(Math.max(3, f.unit * 4), 0xff4d6a, 0.35)
     g.beginPath()
@@ -452,10 +461,27 @@ function drawEnemy(g: Phaser.GameObjects.Graphics, e: Enemy, time: number, unit:
   const flash = e.flash > 0
   if (e.kind === 'carrier') drawCarrier(g, e, time, flash, unit)
   else if (e.kind === 'armour') drawArmour(g, e, time, flash)
-  else if (e.kind === 'missile') drawMissile(g, e, time, flash)
-  else if (e.kind === 'swarm') drawSwarm(g, e, time, flash, unit)
+  else if (e.kind === 'missile' || e.kind === 'kamikaze') drawMissile(g, e, time, flash)
+  else if (e.kind === 'swarm' || e.kind === 'splitter') drawSwarm(g, e, time, flash, unit)
   else if (e.kind === 'shard') drawShard(g, e, flash)
-  else drawDrone(g, e, flash, unit)
+  else if (e.kind === 'tank') {
+    g.fillStyle(flash ? 0xffffff : 0x8a97a8, 1)
+    g.fillCircle(e.x, e.y, e.r)
+    g.fillStyle(flash ? 0xfff6d2 : 0xffb15a, 1)
+    g.fillCircle(e.x, e.y, e.r * 0.35)
+  } else drawDrone(g, e, flash, unit)
+  if (e.kind === 'scout') {
+    g.lineStyle(Math.max(1, unit), 0x9af6ff, 0.9)
+    g.strokeCircle(e.x, e.y, e.r * 1.15)
+  }
+  if (e.kind === 'kamikaze') {
+    g.fillStyle(0xff4d63, 1)
+    g.fillCircle(e.x, e.y, Math.max(2, e.r * 0.35))
+  }
+  if (e.shield > 0) {
+    g.lineStyle(Math.max(1.5, unit * 1.6), 0x9af6ff, 0.85)
+    g.strokeCircle(e.x, e.y, e.r + unit * 4)
+  }
   if (e.stun > 0) {
     g.lineStyle(Math.max(2, unit * 1.7), 0x9af6ff, 0.95)
     g.strokeCircle(e.x, e.y, e.r + unit * 4)

@@ -10,12 +10,23 @@ export const DIFFICULTY = {
 
 export const CLEAR_DELAY = 0.65
 /** Next wave starts while this many hostiles from the current wave are still alive. */
-export const WAVE_OVERLAP = 2
+export const WAVE_OVERLAP = 4
 /** Seconds after the handoff before the next wave's first drone appears. */
-export const CHAIN_LEAD = 0.12
+export const CHAIN_LEAD = 0.05
 
 export type PaceSide = 'top' | 'left' | 'right'
-export type PaceKind = 'drone' | 'missile' | 'swarm' | 'marker' | 'carrier' | 'armour'
+export type PaceKind =
+  | 'drone'
+  | 'scout'
+  | 'tank'
+  | 'splitter'
+  | 'kamikaze'
+  | 'shield'
+  | 'missile'
+  | 'swarm'
+  | 'marker'
+  | 'carrier'
+  | 'armour'
 
 export interface PaceEvent {
   at: number
@@ -46,6 +57,16 @@ const NAMES = [
   'Kiln', 'North Slip', 'Echo', 'Hard Deck', 'Siege',
   'Quay', 'Whiteout', 'Gantry', 'Heat Haze', 'Long Watch',
   'Cinder', 'Vault', 'Riptide', 'Final Grid', 'Last Battery',
+  'Pale Harbour', 'Ash Bridge', 'Copper Yard', 'Silent Quay', 'Red Causeway',
+  'Night Orchard', 'Glass Foundry', 'Lower Sluice', 'Amber Causeway', 'Winter Mast',
+  'South Kiln', 'Blue Gantries', 'Iron Orchard', 'Hollow Span', 'Marble Dock',
+  'Cinder Stairs', 'North Lantern', 'Quiet Reservoir', 'Brass Gallery', 'Fog Battery',
+  'East Sluice', 'Violet Yard', 'Long Causeway', 'Burnt Wharf', 'Silver Mast',
+  'Deep Orchard', 'Rust Gallery', 'Cold Reservoir', 'High Sluice', 'Last Causeway',
+  'Black Lantern', 'White Kiln', 'Narrow Battery', 'Outer Gantries', 'Final Orchard',
+  'Ash Reservoir', 'Copper Stairs', 'Silent Gallery', 'Red Mast', 'Night Sluice',
+  'Glass Causeway', 'Lower Lantern', 'Amber Stairs', 'Winter Battery', 'South Orchard',
+  'Final Sluice', 'Crown Reservoir', 'Last Gantries', 'Hundredth Roof', 'Closing Battery',
 ]
 
 function mulberry32(seed: number): () => number {
@@ -68,14 +89,21 @@ export function difficultyFromSave(value: unknown): Difficulty {
 }
 
 export function pressure(levelId: number): number {
-  return clamp((levelId - 1) / 49, 0, 1)
+  return clamp((levelId - 1) / 99, 0, 1)
 }
 
 export function waveCountFor(levelId: number): number {
-  if (levelId <= 8) return 3
-  if (levelId <= 20) return 4
-  if (levelId <= 35) return 5
-  return 6
+  if (levelId <= 6) return 4
+  if (levelId <= 20) return 5
+  if (levelId <= 40) return 6
+  if (levelId <= 60) return 7
+  return 8
+}
+
+/** 1 on level 10 through 10 on level 100. 0 on other levels. */
+export function bossTier(levelId: number): number {
+  if (levelId % 10 !== 0) return 0
+  return levelId / 10
 }
 
 export function bossKind(levelId: number): 'none' | 'carrier' | 'armour' {
@@ -107,12 +135,12 @@ export function chainReady(queued: number, alive: number, waveIndex: number, wav
 /** How many hostiles can be in the air at once. Matches the play scene cap. */
 export const ON_SCREEN = 18
 
-/** Drone count for one wave. Later waves are strictly larger, about +28%, and at least +1. */
+/** Drone count for one wave. Later waves are strictly larger, and the opening waves are already crowded. */
 export function droneCount(levelId: number, waveIndex: number, difficulty: Difficulty): number {
   const p = pressure(levelId)
-  const base = Math.max(4, Math.round((5.6 + p * 9) * DIFFICULTY[difficulty].count))
+  const base = Math.max(18, Math.round((50 + p * 22) * DIFFICULTY[difficulty].count))
   let count = base
-  for (let i = 0; i < waveIndex; i++) count = Math.max(count + 1, Math.round(count * 1.28))
+  for (let i = 0; i < waveIndex; i++) count = Math.max(count + 1, Math.round(count * 1.16))
   return count
 }
 
@@ -132,10 +160,25 @@ export function levelById(id: number): LevelPace {
   return LEVELS[id - 1] ?? LEVELS[0]
 }
 
-function bodyHp(kind: 'drone' | 'missile' | 'swarm', levelId: number, difficulty: Difficulty): number {
+function bodyHp(kind: Exclude<PaceKind, 'marker' | 'carrier' | 'armour'>, levelId: number, difficulty: Difficulty): number {
   const p = pressure(levelId)
-  const base = kind === 'drone' ? 2 : kind === 'missile' ? 2 : 5
-  const growth = 1 + p * 3.1
+  const base =
+    kind === 'drone'
+      ? 2
+      : kind === 'scout'
+        ? 1
+        : kind === 'tank'
+          ? 3
+          : kind === 'splitter'
+            ? 4
+            : kind === 'kamikaze'
+              ? 1
+              : kind === 'shield'
+                ? 2
+                : kind === 'missile'
+                  ? 2
+                  : 5
+  const growth = 1 + p * 2.4
   return Math.max(1, Math.round(base * growth * DIFFICULTY[difficulty].hp))
 }
 
@@ -159,7 +202,7 @@ function push(
 }
 
 function formation(
-  pattern: 'line' | 'vee' | 'flank' | 'swarm' | 'stream',
+  pattern: 'line' | 'vee' | 'flank' | 'swarm' | 'stream' | 'spiral' | 'pincer' | 'mixed' | 'pair',
   count: number,
   start: number,
   stagger: number,
@@ -194,11 +237,32 @@ function formation(
         n++
       }
     }
+  } else if (pattern === 'spiral') {
+    for (let i = 0; i < count; i++) {
+      const lane = 0.5 + Math.sin(i * 0.7) * 0.38
+      push(events, start + i * stagger * 0.85, 'drone', lane)
+    }
+  } else if (pattern === 'pincer') {
+    for (let i = 0; i < count; i++) {
+      const left = i % 2 === 0
+      const lane = left ? 0.08 + (i / count) * 0.18 : 0.74 + (i / count) * 0.18
+      push(events, start + Math.floor(i / 2) * stagger * 0.7, 'drone', lane, left ? 'left' : 'right')
+    }
+  } else if (pattern === 'mixed') {
+    for (let i = 0; i < count; i++) {
+      const lane = 0.12 + ((i + 0.5) / count) * 0.76
+      push(events, start + i * stagger * 0.8, 'drone', lane)
+    }
+  } else if (pattern === 'pair') {
+    for (let i = 0; i < count; i++) {
+      const lane = i % 2 === 0 ? 0.28 : 0.72
+      push(events, start + Math.floor(i / 2) * stagger * 0.75, 'drone', lane + (rand() - 0.5) * 0.06)
+    }
   } else {
     let lane = 0.25 + rand() * 0.5
     for (let i = 0; i < count; i++) {
       lane = clamp(lane + (rand() - 0.5) * 0.18, 0.1, 0.9)
-      push(events, start + i * stagger * 1.15, 'drone', lane)
+      push(events, start + i * stagger * 1.05, 'drone', lane)
     }
   }
   return events
@@ -208,12 +272,13 @@ export function buildWaveEvents(levelId: number, waveIndex: number, difficulty: 
   const p = pressure(levelId)
   const diff = DIFFICULTY[difficulty]
   const rand = mulberry32(4000 + levelId * 131 + waveIndex * 17 + (difficulty === 'hard' ? 9 : difficulty === 'easy' ? 3 : 1))
-  const patternCycle = ['line', 'vee', 'stream', 'flank', 'swarm'] as const
-  const pattern = patternCycle[(levelId + waveIndex) % patternCycle.length]
+  const earlyCycle = ['line', 'vee', 'stream', 'flank', 'swarm'] as const
+  const lateCycle = ['spiral', 'pincer', 'mixed', 'pair', 'flank'] as const
+  const pattern = (levelId > 50 ? lateCycle : earlyCycle)[(levelId + waveIndex) % (levelId > 50 ? lateCycle.length : earlyCycle.length)]
   const late = waveIndex / Math.max(1, waveCountFor(levelId) - 1)
   const drones = droneCount(levelId, waveIndex, difficulty)
-  const stagger = (0.5 - p * 0.06) / diff.rate
-  const start = 0.7
+  const stagger = (0.22 - p * 0.06) / diff.rate
+  const start = 0.28
   const events = formation(pattern, drones, start, stagger, rand)
   const span = Math.max(...events.map((e) => e.at), start)
 
@@ -232,15 +297,57 @@ export function buildWaveEvents(levelId: number, waveIndex: number, difficulty: 
     push(events, at, 'swarm', 0.22 + rand() * 0.56)
   }
 
+  const scouts = levelId < 3 ? 0 : Math.max(1, Math.round((2 + p * 4) * diff.count))
+  for (let i = 0; i < scouts; i++) {
+    push(events, start + 0.35 + i * stagger * 0.55, 'scout', 0.15 + rand() * 0.7)
+  }
+  const tanks = levelId < 8 ? 0 : Math.max(1, Math.round((1 + p * 3 + late) * diff.count))
+  for (let i = 0; i < tanks; i++) {
+    push(events, start + 1 + i * stagger * 1.4, 'tank', 0.2 + rand() * 0.6)
+  }
+  if (levelId >= 12 && (waveIndex + levelId) % 2 === 0) {
+    push(events, start + span * 0.45, 'splitter', 0.3 + rand() * 0.4)
+  }
+  const divers = levelId < 15 ? 0 : Math.max(1, Math.round(p * 3 * diff.count))
+  for (let i = 0; i < divers; i++) {
+    const side: PaceSide = rand() < 0.5 ? 'left' : 'right'
+    push(events, start + 0.6 + i * stagger, 'kamikaze', side === 'left' ? 0.2 : 0.8, side, true, rand() * 2 - 1)
+  }
+  if (levelId >= 22 && waveIndex % 2 === 1) {
+    push(events, start + 1.2, 'shield', 0.35 + rand() * 0.3)
+  }
+  if (levelId > 50 && pattern === 'mixed') {
+    push(events, start + 0.9, 'tank', 0.25)
+    push(events, start + 1.05, 'scout', 0.55)
+    push(events, start + 1.2, 'tank', 0.75)
+  }
+  if (levelId > 50 && pattern === 'pair' && bossKind(levelId) === 'none') {
+    push(events, start + 1.1, 'armour', 0.32, 'top', true, 0.3)
+    push(events, start + 1.25, 'armour', 0.68, 'top', true, -0.3)
+  }
+
   const boss = bossKind(levelId)
   if (boss !== 'none' && waveIndex === waveCountFor(levelId) - 1) {
+    const tier = bossTier(levelId)
     const lane = 0.5
-    if (boss === 'armour') {
+    if (boss === 'armour' || tier === 5 || tier === 7) {
       push(events, 0.7, 'marker', lane, 'top', true, 0.2)
-      push(events, 1.35, 'armour', lane, 'top', true, 0.35)
-    } else {
-      push(events, 1.1, 'carrier', lane)
+      push(events, 1.2, 'armour', lane, 'top', true, 0.35)
     }
+    if (boss === 'carrier' || tier >= 7) {
+      push(events, tier >= 9 ? 1.6 : 1.15, 'carrier', tier === 9 ? 0.32 : lane)
+    }
+    if (tier >= 5 && tier !== 6) push(events, 1.45, tier % 2 === 0 ? 'armour' : 'carrier', 0.72, 'top', true, -0.2)
+    if (tier >= 3) {
+      push(events, 0.8, 'scout', 0.18)
+      push(events, 0.95, 'scout', 0.82)
+    }
+    if (tier >= 6) push(events, 1.7, 'splitter', 0.5)
+    if (tier >= 8) {
+      push(events, 1.3, 'shield', 0.4)
+      push(events, 1.5, 'shield', 0.6)
+    }
+    if (tier >= 10) push(events, 2, 'kamikaze', 0.5, 'top', true, 0.4)
   }
 
   events.sort((a, b) => a.at - b.at)
@@ -251,6 +358,12 @@ export function eventHp(kind: PaceKind, levelId: number, difficulty: Difficulty)
   if (kind === 'marker') return 0
   if (kind === 'carrier' || kind === 'armour') return bossHull(kind, levelId, difficulty)
   return bodyHp(kind, levelId, difficulty)
+}
+
+export function shieldFor(kind: PaceKind, levelId: number, difficulty: Difficulty): number {
+  if (kind !== 'shield') return 0
+  const p = pressure(levelId)
+  return Math.max(3, Math.round((4 + p * 5) * DIFFICULTY[difficulty].hp))
 }
 
 const MAX_RANK = 5
