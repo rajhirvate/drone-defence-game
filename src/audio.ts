@@ -3,7 +3,7 @@
  * No samples, no third-party audio. Original to this project.
  */
 
-type Kind = 'shot' | 'boom' | 'bigboom' | 'city' | 'ui' | 'wave' | 'upgrade' | 'clear' | 'over' | 'warn' | 'laser' | 'emp' | 'homing'
+type Kind = 'shot' | 'boom' | 'bigboom' | 'city' | 'ui' | 'wave' | 'upgrade' | 'clear' | 'over' | 'warn' | 'laser' | 'emp' | 'homing' | 'mg' | 'fan' | 'beam' | 'flame'
 
 export class AudioBus {
   private ctx: AudioContext | null = null
@@ -99,6 +99,24 @@ export class AudioBus {
       case 'over':
         this.tone('triangle', 311, 233, 0.22, 0.06)
         this.tone('sine', 196, 130, 0.4, 0.05, 0.12)
+        break
+      case 'mg':
+        if (!this.allow('mg', 32)) return
+        this.tone('square', 520, 180, 0.04, 0.03)
+        break
+      case 'fan':
+        if (!this.allow('fan', 70)) return
+        this.tone('triangle', 340, 220, 0.06, 0.04)
+        this.noiseBurst(0.04, 900, 0.04, 'bandpass')
+        break
+      case 'beam':
+        if (!this.allow('beam', 80)) return
+        this.tone('sawtooth', 1400, 420, 0.09, 0.025)
+        break
+      case 'flame':
+        if (!this.allow('flame', 90)) return
+        this.noiseBurst(0.1, 280, 0.08, 'lowpass')
+        this.tone('triangle', 160, 70, 0.1, 0.04)
         break
       case 'warn':
         if (!this.allow('warn', 90)) return

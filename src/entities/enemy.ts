@@ -52,6 +52,7 @@ export function makeEnemy(): Enemy {
     empMark: 0,
     shield: 0,
     maxShield: 0,
+    passMark: 0,
   }
 }
 

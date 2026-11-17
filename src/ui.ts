@@ -54,6 +54,7 @@ const UPGRADE_ICON: Record<UpgradeId, string> = {
   vital: ICO.haptic,
   shield: ICO.armoury,
   duration: ICO.daily,
+  starter: ICO.cross,
 }
 
 function formatDay(iso: string): string {
@@ -91,6 +92,7 @@ export function mountUi(root: HTMLElement): void {
           <span class="k">Combo</span>
           <span class="v" id="combo">x1</span>
         </div>
+        <div class="stat" id="gun-stat"><span class="k">Gun</span><span class="v" id="gun">Cannon</span></div>
         <div class="stat" id="coin-stat"><span class="k">Coins</span><span class="v" id="coins">0</span></div>
         <div class="hud-actions">
           <button type="button" class="hud-btn icon" id="auto-btn" aria-pressed="false" aria-label="Auto-fire">${ICO.cross}</button>
@@ -612,7 +614,8 @@ export function mountUi(root: HTMLElement): void {
   const tutorial = root.querySelector<HTMLElement>('#tutorial')
   const flashEl = root.querySelector<HTMLElement>('#flash')
   const scoreEl = root.querySelector<HTMLElement>('#score')
-  const waveEl = root.querySelector<HTMLElement>('#wave')
+    const waveEl = root.querySelector<HTMLElement>('#wave')
+    const gunEl = root.querySelector<HTMLElement>('#gun')
   const comboEl = root.querySelector<HTMLElement>('#combo')
   const hpFill = root.querySelector<HTMLElement>('#hp-fill')
   const banner = root.querySelector<HTMLElement>('#banner')
@@ -692,6 +695,7 @@ export function mountUi(root: HTMLElement): void {
       waveEl.textContent = waveText
       seen.wave = waveText
     }
+    if (gunEl && gunEl.textContent !== snapshot.gun) gunEl.textContent = snapshot.gun
     const comboText = `x${snapshot.mult}`
     if (seen.combo !== comboText && comboEl) {
       comboEl.textContent = comboText
@@ -989,7 +993,7 @@ function fillShop(root: HTMLElement): void {
     weapons.appendChild(button)
   }
   ranks.replaceChildren()
-  const rankIds: UpgradeId[] = ['rate', 'spread', 'damage', 'emp', 'vital', 'shield', 'duration']
+  const rankIds: UpgradeId[] = ['rate', 'spread', 'damage', 'emp', 'vital', 'shield', 'duration', 'starter']
   const names = {
     rate: 'Rapid Cycle',
     spread: 'Flak Burst',
@@ -998,14 +1002,17 @@ function fillShop(root: HTMLElement): void {
     vital: 'City Plating',
     shield: 'Shield HP',
     duration: 'Power-up Time',
+    starter: 'Open at Lv2',
   }
   for (const id of rankIds) {
     const rank = save.ranks[id]
+    const cap = id === 'starter' ? 1 : SHOP.maxRank
+    const cost = id === 'starter' ? 60 : rankCost(rank)
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'choice'
-    button.disabled = rank >= SHOP.maxRank
-    button.innerHTML = `<span class="choice-name">${UPGRADE_ICON[id]}${names[id]}</span><span class="choice-stat">${rank >= SHOP.maxRank ? 'Max' : `Lv ${rank} · ${rankCost(rank)} coins`}</span>`
+    button.disabled = rank >= cap
+    button.innerHTML = `<span class="choice-name">${UPGRADE_ICON[id]}${names[id]}</span><span class="choice-stat">${rank >= cap ? 'Owned' : `Lv ${rank} · ${cost} coins`}</span>`
     button.addEventListener('click', () => {
       audio.unlock()
       emitCommand({ type: 'buy-rank', id })

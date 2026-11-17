@@ -3,6 +3,7 @@ import { audio } from '../audio'
 import { emitView, onCommand } from '../bridge'
 import { CHAIN_LEAD, LEVELS, buildLevelWave, chainReady, eventHp, levelById, shieldFor, slowOnKill } from '../campaign'
 import { ACHIEVEMENTS, bossReward, insertScore, newBadges } from '../board'
+import { CANNON, CAPSULE_LETTERS, takeCapsule, tapHitsDrop, weaponLabel, loseWeaponLevel, type CapsuleLetter, type WeaponState } from '../capsules'
 import { bossTier } from '../pace'
 import {
   BALANCE,
@@ -102,7 +103,17 @@ export class PlayScene extends Phaser.Scene {
   private durationRank = 0
   private bossClock = 2.2
   private boost = { rapid: 0, spread: 0, shield: 0, slow: 0 }
-  private drops: { x: number; y: number; kind: 'rapid' | 'spread' | 'shield' | 'slow'; life: number }[] = []
+  private drops: {
+    x: number
+    y: number
+    kind: 'rapid' | 'spread' | 'shield' | 'slow' | 'capsule'
+    letter?: CapsuleLetter
+    life: number
+    max: number
+  }[] = []
+  private power: WeaponState = CANNON
+  private starterRank = 0
+  private bulletSerial = 1
   private autoFire = false
   private muted = false
   private newBest = false
@@ -191,6 +202,7 @@ export class PlayScene extends Phaser.Scene {
       audio.unlock()
       this.pointerDown = true
       if (this.phase !== 'playing') return
+      if (this.tryTapDrop(p.worldX, p.worldY)) return
       this.aimAt(p.worldX, p.worldY)
       this.armTap()
     })
@@ -478,7 +490,9 @@ export class PlayScene extends Phaser.Scene {
     this.vitalRank = this.save.ranks.vital
     this.shieldRank = this.save.ranks.shield
     this.durationRank = this.save.ranks.duration
+    this.starterRank = this.save.ranks.starter > 0 ? 1 : 0
     this.bossClock = 2.2
+    this.power = CANNON
     this.boost = { rapid: 0, spread: 0, shield: this.shieldRank, slow: 0 }
     this.save.stats.runs += 1
     this.drops = []
@@ -599,6 +613,7 @@ export class PlayScene extends Phaser.Scene {
       this.save.stats.coinsEarned += prize
       this.popup(`BOSS +${prize}`, x, y - 36, '#ffb15a')
     }
+    this.grantCapsule(x, y)
     this.noteBadges()
   }
 
@@ -651,10 +666,53 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private maybeDrop(x: number, y: number): void {
-    if (this.drops.length > 0 || Math.random() > 0.04) return
+    if (this.drops.length >= 3) return
+    if (Math.random() < 0.11) {
+      const letter = CAPSULE_LETTERS[Math.floor(Math.random() * CAPSULE_LETTERS.length)]
+      this.drops.push({ x, y, kind: 'capsule', letter, life: 8, max: 8 })
+      return
+    }
+    if (Math.random() > 0.04) return
     const roll = Math.random()
     const kind = roll < 0.3 ? 'rapid' : roll < 0.55 ? 'spread' : roll < 0.8 ? 'shield' : 'slow'
-    this.drops.push({ x, y, kind, life: 7 })
+    this.drops.push({ x, y, kind, life: 7, max: 7 })
+  }
+
+  private grantCapsule(x: number, y: number): void {
+    const letter = CAPSULE_LETTERS[Math.floor(Math.random() * CAPSULE_LETTERS.length)]
+    this.drops = this.drops.filter((drop) => drop.kind !== 'capsule')
+    this.drops.push({ x, y: y + 16, kind: 'capsule', letter, life: 9, max: 9 })
+  }
+
+  private collectDrop(index: number): void {
+    const drop = this.drops[index]
+    if (!drop) return
+    if (drop.kind === 'capsule' && drop.letter) {
+      const next = takeCapsule(this.power, drop.letter, 1 + this.starterRank)
+      this.power = next.state
+      this.popup(next.popup, drop.x, drop.y - 16, '#ffb15a')
+      audio.play('upgrade')
+    } else if (drop.kind === 'shield') {
+      this.boost.shield = Math.min(5, this.boost.shield + 1)
+      this.popup('SHIELD', drop.x, drop.y, '#b6f27a')
+      audio.play('upgrade')
+    } else if (drop.kind !== 'capsule') {
+      this.boost[drop.kind] = this.boostSeconds()
+      this.popup(drop.kind.toUpperCase(), drop.x, drop.y, '#ffb15a')
+      audio.play('upgrade')
+    }
+  }
+
+  private tryTapDrop(x: number, y: number): boolean {
+    const reach = Math.max(36, this.unit * 34)
+    for (let i = this.drops.length - 1; i >= 0; i--) {
+      const drop = this.drops[i]
+      if (!tapHitsDrop(drop.x - x, drop.y - y, reach)) continue
+      this.collectDrop(i)
+      this.drops.splice(i, 1)
+      return true
+    }
+    return false
   }
 
   private tickBoosts(dt: number): void {
@@ -668,10 +726,7 @@ export class PlayScene extends Phaser.Scene {
       drop.y += this.unit * 70 * dt
       const near = Math.hypot(drop.x - this.turretX, drop.y - this.turretY) < this.unit * 46
       if (near) {
-        if (drop.kind === 'shield') this.boost.shield = Math.min(5, this.boost.shield + 1)
-        else this.boost[drop.kind] = this.boostSeconds()
-        this.popup(drop.kind.toUpperCase(), drop.x, drop.y, '#ffb15a')
-        audio.play('upgrade')
+        this.collectDrop(i)
         continue
       }
       if (drop.life > 0 && drop.y < this.groundY) this.drops[write++] = drop
@@ -692,7 +747,8 @@ export class PlayScene extends Phaser.Scene {
     else if (id === 'emp') this.empRank = Math.min(SHOP.maxRank, this.empRank + 1)
     else if (id === 'vital') this.vitalRank = Math.min(SHOP.maxRank, this.vitalRank + 1)
     else if (id === 'shield') this.shieldRank = Math.min(SHOP.maxRank, this.shieldRank + 1)
-    else this.durationRank = Math.min(SHOP.maxRank, this.durationRank + 1)
+    else if (id === 'duration') this.durationRank = Math.min(SHOP.maxRank, this.durationRank + 1)
+    else this.starterRank = 1
     audio.play('upgrade')
     this.phase = 'playing'
     this.beginWave()
@@ -705,7 +761,8 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private wantsFire(): boolean {
-    if (this.phase !== 'playing' || this.weapon === 'emp') return false
+    if (this.phase !== 'playing') return false
+    if (this.weapon === 'emp' && this.power.letter === 'C') return false
     if (this.autoFire) return true
     if (this.pointerDown) return true
     if (this.spaceDown && !buttonFocused()) return true
@@ -734,7 +791,20 @@ export class PlayScene extends Phaser.Scene {
     }
 
     this.laserOn = false
-    if (this.weapon === 'emp') {
+    if (this.power.letter === 'L') {
+      if (firing) this.firePowerLaser(dt)
+    } else if (this.power.letter !== 'C') {
+      if (firing) {
+        this.fireCooldown -= dt
+        const interval = this.powerInterval()
+        let guard = 0
+        while (this.fireCooldown <= 0 && guard < 3) {
+          this.shootPower()
+          this.fireCooldown += interval
+          guard++
+        }
+      } else if (this.fireCooldown < 0) this.fireCooldown = 0
+    } else if (this.weapon === 'emp') {
       if (this.empQueued) {
         this.empQueued = false
         this.tryEmp()
@@ -970,6 +1040,123 @@ export class PlayScene extends Phaser.Scene {
     return { x: targetX, y: -30, targetX, targetY }
   }
 
+  private powerInterval(): number {
+    const level = this.power.level
+    if (this.power.letter === 'M') return Math.max(0.04, 0.09 - level * 0.012)
+    if (this.power.letter === 'S') return 0.16
+    if (this.power.letter === 'F') return Math.max(0.2, 0.32 - level * 0.02)
+    return Math.max(0.28, 0.5 - level * 0.04)
+  }
+
+  private shootPower(): void {
+    const letter = this.power.letter
+    const level = this.power.level
+    if (letter === 'C' || letter === 'L') return
+    const pivotY = this.turretY - this.unit * 16
+    const angle = this.aimDisplay
+    const tipX = this.turretX + Math.cos(angle) * this.barrel
+    const tipY = pivotY + Math.sin(angle) * this.barrel
+    const base = shellDamage(this.damageLevel)
+    if (letter === 'H') {
+      const count = level >= 3 ? 2 : 1
+      for (let i = 0; i < count; i++) {
+        const b = this.takeBullet()
+        if (!b) break
+        const a = angle + (i - (count - 1) / 2) * 0.18
+        this.armBullet(b, tipX, tipY, a, WEAPONS.missile.speed * this.unit, base + 2, 0, true, false)
+      }
+      audio.play('homing')
+      return
+    }
+    if (letter === 'F') {
+      const b = this.takeBullet()
+      if (!b) return
+      this.armBullet(b, tipX, tipY, angle, BALANCE.bulletSpeed * 0.72 * this.unit, base, this.unit * (16 + level * 8), false, false)
+      b.r = this.unit * (5 + level)
+      audio.play('flame')
+      return
+    }
+    if (letter === 'S') {
+      const pellets = Math.min(5, 2 + level)
+      const step = 0.16 + level * 0.015
+      const start = -step * (pellets - 1) * 0.5
+      for (let i = 0; i < pellets; i++) {
+        const b = this.takeBullet()
+        if (!b) break
+        this.armBullet(b, tipX, tipY, angle + start + step * i, BALANCE.bulletSpeed * this.unit, Math.max(1, base * 0.55), 0, false, false)
+      }
+      audio.play('fan')
+      return
+    }
+    const b = this.takeBullet()
+    if (!b) return
+    this.armBullet(b, tipX, tipY, angle, BALANCE.bulletSpeed * 1.15 * this.unit, Math.max(1, base * 0.8), 0, false, false)
+    audio.play('mg')
+  }
+
+  private armBullet(
+    b: Bullet,
+    x: number,
+    y: number,
+    angle: number,
+    speed: number,
+    damage: number,
+    splash: number,
+    homing: boolean,
+    pierce: boolean,
+  ): void {
+    const ca = Math.cos(angle)
+    const sa = Math.sin(angle)
+    b.active = true
+    b.x = x + ca * 6
+    b.y = y + sa * 6
+    b.px = b.x
+    b.py = b.y
+    b.vx = ca * speed
+    b.vy = sa * speed
+    b.life = homing ? 2.4 : BALANCE.bulletLife
+    b.damage = damage
+    b.splash = splash
+    b.r = (homing ? 6 : BALANCE.bulletRadius) * this.unit
+    b.flak = splash > 0
+    b.homing = homing
+    b.turn = WEAPONS.missile.turn
+    b.skin = homing ? this.save.missileSkin : 'standard'
+    b.pierce = pierce
+    b.id = pierce ? ++this.bulletSerial : 0
+  }
+
+  private firePowerLaser(dt: number): void {
+    const angle = this.aimDisplay
+    const c = Math.cos(angle)
+    const s = Math.sin(angle)
+    const tipX = this.turretX + c * this.barrel
+    const tipY = this.turretY - this.unit * 16 + s * this.barrel
+    this.muzzleX = tipX
+    this.muzzleY = tipY
+    const reach = Math.max(this.viewW, this.viewH)
+    this.laserX = tipX + c * reach
+    this.laserY = tipY + s * reach
+    this.laserOn = true
+    this.laserTick -= dt
+    if (this.laserTick > 0) return
+    this.laserTick = 0.1
+    const thick = this.unit * (5 + this.power.level * 3)
+    const damage = 0.7 + this.power.level * 0.28 + this.damageLevel * 0.12
+    for (let i = 0; i < this.enemies.length; i++) {
+      const enemy = this.enemies[i]
+      if (!enemy.active || enemy.attract) continue
+      const dx = enemy.x - tipX
+      const dy = enemy.y - tipY
+      const along = dx * c + dy * s
+      if (along < 0) continue
+      const side = Math.abs(dx * -s + dy * c)
+      if (side > thick + enemy.r) continue
+      this.damageEnemy(enemy, damage, 'laser')
+    }
+    audio.play('beam')
+  }
+
   private shoot(): void {
     const pivotX = this.turretX
     const pivotY = this.turretY - this.unit * 16
@@ -1006,6 +1193,8 @@ export class PlayScene extends Phaser.Scene {
       b.homing = homing
       b.turn = WEAPONS.missile.turn
       b.skin = homing ? this.save.missileSkin : 'standard'
+      b.pierce = false
+      b.id = 0
     }
     this.muzzle = 0.045
     this.noteTutorial(1)
@@ -1030,6 +1219,12 @@ export class PlayScene extends Phaser.Scene {
         b.x += b.vx * sdt
         b.y += b.vy * sdt
         hit = this.bulletHit(b)
+        if (hit && b.pierce) {
+          this.damageEnemy(hit, b.damage, 'laser')
+          hit.passMark = b.id
+          hit = null
+          continue
+        }
         if (hit) break
       }
       b.life -= dt
@@ -1050,6 +1245,7 @@ export class PlayScene extends Phaser.Scene {
     for (let i = 0; i < this.enemies.length; i++) {
       const e = this.enemies[i]
       if (!e.active || e.attract) continue
+      if (b.pierce && e.passMark === b.id) continue
       const dx = e.x - b.x
       const dy = e.y - b.y
       const rr = e.r * 1.28 + b.r
@@ -1163,6 +1359,11 @@ export class PlayScene extends Phaser.Scene {
       this.popup('SHIELD', e.x, e.y, '#b6f27a')
       audio.play('ui')
       return
+    }
+    const dropped = loseWeaponLevel(this.power, false)
+    if (dropped.letter !== this.power.letter || dropped.level !== this.power.level) {
+      this.power = dropped
+      this.popup(dropped.letter === 'C' ? 'CANNON' : weaponLabel(dropped), e.x, e.y - 20, '#ff8a3d')
     }
     this.cityHp = Math.max(0, this.cityHp - e.city)
     this.waveDamage += e.city
@@ -1609,6 +1810,12 @@ export class PlayScene extends Phaser.Scene {
       .map((skin) => skin.id)
       .join(',')
     v.skinToast = this.skinToast
+    v.gun =
+      this.power.letter === 'C'
+        ? 'Cannon'
+        : this.power.level >= 4
+          ? `${this.power.letter} MAX`
+          : `${this.power.letter}${this.power.level}`
     if (this.mode === 'endless') v.best = this.save.bestEndless
     emitView(v)
     this.publishDebug()
@@ -1658,8 +1865,9 @@ export class PlayScene extends Phaser.Scene {
 
   private buyRank(id: UpgradeId): void {
     const rank = this.save.ranks[id]
-    if (rank >= SHOP.maxRank) return
-    const cost = rankCost(rank)
+    const cap = id === 'starter' ? 1 : SHOP.maxRank
+    if (rank >= cap) return
+    const cost = id === 'starter' ? 60 : rankCost(rank)
     if (this.save.coins < cost) return
     this.save.coins -= cost
     this.save.ranks[id] = rank + 1
@@ -1966,6 +2174,21 @@ export class PlayScene extends Phaser.Scene {
       missileSkin: this.save.missileSkin,
       coins: this.save.coins,
       inject: (kind: 'drone' | 'missile' | 'armour' | 'swarm' | 'carrier' | 'scout' | 'shield') => this.injectProbe(kind),
+      spawnCapsule: (letter: CapsuleLetter) => {
+        this.drops.push({
+          x: this.viewW * 0.62,
+          y: this.viewH * 0.46,
+          kind: 'capsule',
+          letter,
+          life: 8,
+          max: 8,
+        })
+      },
+      setPower: (letter: CapsuleLetter, level: number) => {
+        this.power = { letter, level }
+      },
+      power: () => this.power,
+      drops: () => this.drops.map((drop) => ({ x: drop.x, y: drop.y, kind: drop.kind, letter: drop.letter })),
     }
     ;(window as Window & { __DRONE_DEBUG__?: typeof api }).__DRONE_DEBUG__ = api
   }
@@ -2102,6 +2325,8 @@ function makeBullet(): Bullet {
     homing: false,
     turn: 2,
     skin: 'standard',
+    pierce: false,
+    id: 0,
   }
 }
 

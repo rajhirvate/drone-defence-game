@@ -26,7 +26,16 @@ export interface SaveData {
   unlocked: number
   owned: Record<WeaponId, boolean>
   equipped: WeaponId
-  ranks: { rate: number; spread: number; damage: number; emp: number; vital: number; shield: number; duration: number }
+  ranks: {
+    rate: number
+    spread: number
+    damage: number
+    emp: number
+    vital: number
+    shield: number
+    duration: number
+    starter: number
+  }
   /** Best score per level id. Index 0 is unused. */
   bestLevel: number[]
   /** Top local scores per level id. Index 0 is unused. */
@@ -75,7 +84,7 @@ function emptySave(): SaveData {
     unlocked: 1,
     owned: { cannon: true, laser: false, missile: false, emp: false },
     equipped: 'cannon',
-    ranks: { rate: 0, spread: 0, damage: 0, emp: 0, vital: 0, shield: 0, duration: 0 },
+    ranks: { rate: 0, spread: 0, damage: 0, emp: 0, vital: 0, shield: 0, duration: 0, starter: 0 },
     bestLevel: emptyStars(),
     scores: emptyScores(),
     achievements: [],
@@ -144,6 +153,7 @@ function sanitize(raw: Partial<SaveData> | null): SaveData {
     base.ranks.vital = clampRank(raw.ranks.vital)
     base.ranks.shield = clampRank(raw.ranks.shield)
     base.ranks.duration = clampRank(raw.ranks.duration)
+    base.ranks.starter = clampRank(raw.ranks.starter) > 0 ? 1 : 0
   }
   if (Array.isArray(raw.bestLevel)) {
     for (let i = 1; i < base.bestLevel.length; i++) {

@@ -60,6 +60,7 @@ export interface Enemy {
   empMark: number
   shield: number
   maxShield: number
+  passMark: number
 }
 
 export interface Bullet {
@@ -78,6 +79,8 @@ export interface Bullet {
   homing: boolean
   turn: number
   skin: MissileSkinId
+  pierce: boolean
+  id: number
 }
 
 export interface Particle {
@@ -175,6 +178,7 @@ export interface Snapshot {
   turretSkin: TurretSkinId
   ownedTurretKey: string
   skinToast: string
+  gun: string
 }
 
 export type Command =
@@ -266,5 +270,6 @@ export function blankSnapshot(): Snapshot {
     turretSkin: 'navy',
     ownedTurretKey: '',
     skinToast: '',
+    gun: 'Cannon',
   }
 }

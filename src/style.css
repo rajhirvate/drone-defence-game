@@ -224,6 +224,7 @@ body.is-playing #game canvas {
   text-overflow: ellipsis;
 }
 
+#gun { font-size: clamp(12px, 3vw, 16px); }
 .v {
   display: block;
   font-family: var(--mono);

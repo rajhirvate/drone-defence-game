@@ -4,7 +4,7 @@ export const GAME_TITLE = 'Drone Defence'
 export const GAME_DESCRIPTION =
   'Arcade defence game. Aim a turret and shoot down fictional drones and missiles before they reach the city skyline.'
 
-export type UpgradeId = 'rate' | 'spread' | 'damage' | 'emp' | 'vital' | 'shield' | 'duration'
+export type UpgradeId = 'rate' | 'spread' | 'damage' | 'emp' | 'vital' | 'shield' | 'duration' | 'starter'
 
 export interface UpgradeDef {
   id: UpgradeId
@@ -47,6 +47,11 @@ export const UPGRADES: readonly UpgradeDef[] = [
     id: 'duration',
     name: 'Power-up Time',
     blurb: 'Pickups last longer.',
+  },
+  {
+    id: 'starter',
+    name: 'Open at Lv2',
+    blurb: 'The first weapon capsule of a life starts at level 2.',
   },
 ]
 
@@ -206,7 +211,7 @@ export const TUTORIAL = [
   'Level 1: drag to aim. The first wave is already coming.',
   'Hold to fire, or leave auto-fire on and steer.',
   'Pause if you need sound, music, or haptics.',
-  'Clear every wave. Coins buy damage, fire rate, and shield.',
+  'Letters M S L F H are guns. Tap a capsule. The same letter levels it up.',
 ] as const
 
 export function hpFor(kind: 'drone' | 'missile' | 'swarm' | 'shard', wave: number): number {

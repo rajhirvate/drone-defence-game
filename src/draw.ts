@@ -57,7 +57,7 @@ export interface ActionFrame {
   beams: readonly Beam[]
   empPulses: readonly EmpPulseDraw[]
   turretSkin: TurretSkinId
-  drops: readonly { x: number; y: number; kind: string }[]
+  drops: readonly { x: number; y: number; kind: string; letter?: string; life: number; max: number }[]
 }
 
 export interface Beam {
@@ -207,11 +207,8 @@ export function paintAction(g: Phaser.GameObjects.Graphics, f: ActionFrame): voi
   drawTurret(g, f)
   for (let i = 0; i < f.drops.length; i++) {
     const drop = f.drops[i]
-    const color = drop.kind === 'rapid' ? 0xffb15a : drop.kind === 'spread' ? 0x9af6ff : drop.kind === 'shield' ? 0xb6f27a : 0xc9a6ff
-    g.fillStyle(color, 0.9)
-    g.fillCircle(drop.x, drop.y, Math.max(5, f.unit * 6))
-    g.lineStyle(Math.max(1, f.unit), 0xf7fbff, 0.8)
-    g.strokeCircle(drop.x, drop.y, Math.max(7, f.unit * 8))
+    if (drop.max > 0 && drop.life / drop.max < 0.3 && Math.sin(drop.life * 22) < 0) continue
+    drawDrop(g, drop, f.unit)
   }
   if (f.laserOn) {
     g.lineStyle(Math.max(3, f.unit * 4), 0xff4d6a, 0.35)
@@ -601,6 +598,90 @@ const TURRET_PAINT = {
   cyan: { base: 0x102028, mid: 0x1c4a56, top: 0x9af6ff, barrel: 0xd8fbff, trim: 0x3a8a96 },
   violet: { base: 0x1a1428, mid: 0x3a2a58, top: 0xc9a6ff, barrel: 0xe4d8ff, trim: 0x6a4cff },
 } as const
+
+const GLYPH: Record<string, ReadonlyArray<readonly [number, number, number, number]>> = {
+  M: [[0.15, 0.8, 0.15, 0.2], [0.15, 0.2, 0.5, 0.65], [0.5, 0.65, 0.85, 0.2], [0.85, 0.2, 0.85, 0.8]],
+  S: [[0.8, 0.28, 0.25, 0.28], [0.25, 0.28, 0.25, 0.5], [0.25, 0.5, 0.75, 0.5], [0.75, 0.5, 0.75, 0.75], [0.75, 0.75, 0.2, 0.75]],
+  L: [[0.25, 0.18, 0.25, 0.82], [0.25, 0.82, 0.78, 0.82]],
+  F: [[0.28, 0.18, 0.28, 0.82], [0.28, 0.18, 0.78, 0.18], [0.28, 0.48, 0.68, 0.48]],
+  H: [[0.22, 0.18, 0.22, 0.82], [0.78, 0.18, 0.78, 0.82], [0.22, 0.5, 0.78, 0.5]],
+}
+
+function drawGlyph(g: Phaser.GameObjects.Graphics, letter: string, x: number, y: number, size: number, color: number): void {
+  const lines = GLYPH[letter]
+  if (!lines) return
+  g.lineStyle(Math.max(1.5, size * 0.12), color, 1)
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    g.beginPath()
+    g.moveTo(x + line[0] * size, y + line[1] * size)
+    g.lineTo(x + line[2] * size, y + line[3] * size)
+    g.strokePath()
+  }
+}
+
+function drawDrop(
+  g: Phaser.GameObjects.Graphics,
+  drop: { x: number; y: number; kind: string; letter?: string },
+  unit: number,
+): void {
+  const capsule = drop.kind === 'capsule' && drop.letter
+  const color = capsule
+    ? drop.letter === 'M'
+      ? 0xffb15a
+      : drop.letter === 'S'
+        ? 0x9af6ff
+        : drop.letter === 'L'
+          ? 0xff4d6a
+          : drop.letter === 'F'
+            ? 0xff6a2a
+            : 0xc9a6ff
+    : drop.kind === 'rapid'
+      ? 0xffb15a
+      : drop.kind === 'spread'
+        ? 0x9af6ff
+        : drop.kind === 'shield'
+          ? 0xb6f27a
+          : 0xc9a6ff
+  const r = Math.max(8, unit * (capsule ? 11 : 7))
+  g.fillStyle(0x10182a, 0.92)
+  g.fillCircle(drop.x, drop.y, r)
+  g.lineStyle(Math.max(2, unit * 1.6), color, 1)
+  g.strokeCircle(drop.x, drop.y, r)
+  if (capsule && drop.letter) {
+    drawGlyph(g, drop.letter, drop.x - r * 0.62, drop.y - r * 0.62, r * 1.25, 0xf7fbff)
+    return
+  }
+  if (drop.kind === 'shield') {
+    g.strokeCircle(drop.x, drop.y, r * 0.45)
+    return
+  }
+  if (drop.kind === 'spread') {
+    g.lineStyle(Math.max(1.4, unit), color, 1)
+    g.beginPath()
+    g.moveTo(drop.x, drop.y + r * 0.2)
+    g.lineTo(drop.x - r * 0.45, drop.y - r * 0.35)
+    g.moveTo(drop.x, drop.y + r * 0.2)
+    g.lineTo(drop.x, drop.y - r * 0.45)
+    g.moveTo(drop.x, drop.y + r * 0.2)
+    g.lineTo(drop.x + r * 0.45, drop.y - r * 0.35)
+    g.strokePath()
+    return
+  }
+  if (drop.kind === 'slow') {
+    g.lineStyle(Math.max(1.4, unit), color, 1)
+    g.strokeCircle(drop.x, drop.y, r * 0.38)
+    return
+  }
+  g.lineStyle(Math.max(1.6, unit), color, 1)
+  g.beginPath()
+  g.moveTo(drop.x, drop.y - r * 0.4)
+  g.lineTo(drop.x, drop.y + r * 0.35)
+  g.moveTo(drop.x - r * 0.28, drop.y - r * 0.05)
+  g.lineTo(drop.x, drop.y - r * 0.4)
+  g.lineTo(drop.x + r * 0.28, drop.y - r * 0.05)
+  g.strokePath()
+}
 
 function drawTurret(g: Phaser.GameObjects.Graphics, f: ActionFrame): void {
   const x = f.turretX
