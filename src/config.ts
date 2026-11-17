@@ -184,6 +184,8 @@ export const COINS = {
   shard: 2,
   carrier: 20,
   armour: 16,
+  jammer: 5,
+  plate: 8,
 } as const
 
 export const STAR_RULE = { three: 0.7, two: 0.4 }

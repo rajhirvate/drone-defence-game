@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { applyHit } from './hits.ts'
+import { applyHit, resistScale } from './hits.ts'
 
 test('a shield ignores cannon and laser until a missile or EMP breaks it', () => {
   const blocked = applyHit(8, 4, 6, 'cannon')
@@ -17,4 +17,15 @@ test('a shield ignores cannon and laser until a missile or EMP breaks it', () =>
   assert.equal(pulsed.hp, 8)
   const open = applyHit(8, 0, 3, 'cannon')
   assert.equal(open.hp, 5)
+})
+
+test('a plate shrugs off shells and yields to laser and flame', () => {
+  assert.equal(resistScale('drone', 'cannon'), 1)
+  assert.ok(resistScale('plate', 'cannon') < 0.4)
+  assert.ok(resistScale('plate', 'missile') < 0.4)
+  assert.ok(resistScale('plate', 'laser') > 1)
+  assert.ok(resistScale('plate', 'flame') > 1)
+  const soaked = 8 * resistScale('plate', 'cannon')
+  const cut = 8 * resistScale('plate', 'laser')
+  assert.ok(cut > soaked * 3)
 })

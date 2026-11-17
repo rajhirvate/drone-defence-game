@@ -14,6 +14,8 @@ export type SpawnKind =
   | 'marker'
   | 'carrier'
   | 'armour'
+  | 'jammer'
+  | 'plate'
 
 export interface SpawnEvent {
   at: number

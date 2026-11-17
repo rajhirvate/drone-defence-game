@@ -17,6 +17,8 @@ export type EnemyKind =
   | 'shard'
   | 'carrier'
   | 'armour'
+  | 'jammer'
+  | 'plate'
 
 export type MoveMode = 'weave' | 'line' | 'arc' | 'shard' | 'flyby'
 
@@ -81,6 +83,7 @@ export interface Bullet {
   skin: MissileSkinId
   pierce: boolean
   id: number
+  heat: boolean
 }
 
 export interface Particle {
@@ -179,6 +182,10 @@ export interface Snapshot {
   ownedTurretKey: string
   skinToast: string
   gun: string
+  drive: number
+  driveReady: boolean
+  driveLeft: number
+  bossName: string
 }
 
 export type Command =
@@ -214,6 +221,7 @@ export type Command =
   | { type: 'toggle-music' }
   | { type: 'mark-emp-hint' }
   | { type: 'set-difficulty'; id: Difficulty }
+  | { type: 'overdrive' }
 
 export function blankSnapshot(): Snapshot {
   return {
@@ -271,5 +279,9 @@ export function blankSnapshot(): Snapshot {
     ownedTurretKey: '',
     skinToast: '',
     gun: 'Cannon',
+    drive: 0,
+    driveReady: false,
+    driveLeft: 0,
+    bossName: '',
   }
 }

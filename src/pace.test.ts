@@ -4,7 +4,9 @@ import {
   DIFFICULTY,
   LEVELS,
   bossKind,
+  bossProfile,
   buildWaveEvents,
+  continueLevel,
   campaignOutcome,
   chainReady,
   difficultyFromSave,
@@ -32,6 +34,17 @@ test('a level stays open until its last wave is cleared', () => {
     assert.ok(events.some((event) => event.kind === bossKind(id)))
   }
   assert.equal(bossKind(9), 'none')
+  assert.equal(bossProfile(9), null)
+  assert.equal(bossProfile(10)?.name, 'Hangar Moth')
+  assert.equal(bossProfile(20)?.pattern, 'lance')
+  assert.equal(bossProfile(100)?.name, 'Closing Battery')
+  assert.equal(continueLevel(1, []), 1)
+  assert.equal(continueLevel(4, [0, 3, 2, 1, 0]), 4)
+  assert.equal(continueLevel(4, [0, 3, 0, 1, 0]), 2)
+  assert.equal(eventHp('jammer', 30, 'medium'), eventHp('scout', 30, 'medium'))
+  assert.equal(eventHp('plate', 40, 'medium'), eventHp('tank', 40, 'medium'))
+  assert.ok(buildWaveEvents(12, 1, 'medium').some((event) => event.kind === 'jammer'))
+  assert.ok(buildWaveEvents(24, 1, 'medium').some((event) => event.kind === 'plate'))
 })
 
 test('difficulty scales count, speed, hp, and spawn gaps', () => {

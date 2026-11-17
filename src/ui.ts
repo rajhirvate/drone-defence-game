@@ -18,7 +18,7 @@ import { ACHIEVEMENTS } from './board'
 import { formatInt } from './math'
 import { renderShareCard, shareCard } from './sharecard'
 import { loadSave } from './storage'
-import type { Difficulty } from './pace'
+import { continueLevel, levelById, type Difficulty } from './pace'
 import type { Snapshot } from './types'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -105,8 +105,13 @@ export function mountUi(root: HTMLElement): void {
         <div class="hp-track" aria-hidden="true"><div id="hp-fill"></div></div>
       </div>
       <div class="hp-row" id="boss-row" hidden>
-        <span class="k">Boss</span>
+        <span class="k" id="boss-label">Boss</span>
         <div class="hp-track" aria-hidden="true"><div id="boss-fill"></div></div>
+      </div>
+      <div class="hp-row drive-row">
+        <span class="k">Drive</span>
+        <div class="hp-track" aria-hidden="true"><div id="drive-fill"></div></div>
+        <button type="button" class="drive-btn" id="overdrive-btn" disabled>OD</button>
       </div>
       <div class="weapon-row" id="weapons"></div>
       <p id="weapon-hint" class="weapon-hint" hidden></p>
@@ -185,6 +190,7 @@ export function mountUi(root: HTMLElement): void {
           </button>
         </div>
         <div class="link-row">
+          <button type="button" class="text-btn" id="continue-run" hidden>Continue</button>
           <button type="button" class="text-btn" id="open-badges">Badges</button>
           <button type="button" class="text-btn" id="open-stats">Stats</button>
           <button type="button" class="text-btn" id="howto-open" aria-expanded="false" aria-controls="howto-sheet">How to play</button>
@@ -197,16 +203,18 @@ export function mountUi(root: HTMLElement): void {
         </div>
         <div class="panel-body">
           <ul class="howto">
-            <li>Aim with the pointer. Hold to fire, or switch on auto-fire.</li>
-            <li>Drones weave. Missiles dive. Swarms split.</li>
-            <li>A level sends several waves. It ends when the last wave is clear.</li>
-            <li>Endless mode still offers an upgrade between waves.</li>
-            <li>EMP is a tap. It stuns and damages nearby drones, then cools down.</li>
+            <li>Drag to aim. Hold to fire, or leave auto-fire on and just steer.</li>
+            <li>Letters on capsules switch the gun: M machine gun, S spread, L laser, F flame, H homing. The same letter levels it up to MAX.</li>
+            <li>A city hit drops one weapon level. A shield charge prevents that.</li>
+            <li>Timed boosts: rapid fire, extra spread, a shield hit, and slow motion. Tap a drop, or walk the turret into it.</li>
+            <li>Kills fill Overdrive. When the meter is full, tap OD for six seconds of super fire.</li>
+            <li>Jammers sidestep shells. Plates shrug off shells and yield to laser and flame.</li>
+            <li>Every tenth level ends with a named boss. EMP is a tap, then it cools down.</li>
           </ul>
-          <p class="keys">Space fires · F auto-fire · M mute</p>
+          <p class="keys">Space fires · F auto-fire · M mute · tap a capsule to grab it</p>
         </div>
         <div class="panel-foot">
-          <button type="button" class="ghost" id="howto-close">Close</button>
+          <button type="button" class="ghost" id="howto-close">Back</button>
         </div>
       </div>
     </section>
@@ -465,6 +473,16 @@ export function mountUi(root: HTMLElement): void {
     setSheet(settings, false, gear)
   })
   root.querySelector('#howto-close')?.addEventListener('click', () => setSheet(howto, false, howtoOpen))
+  root.querySelector('#overdrive-btn')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'overdrive' })
+  })
+  root.querySelector('#continue-run')?.addEventListener('click', () => {
+    audio.unlock()
+    closeSheets()
+    const save = loadSave()
+    emitCommand({ type: 'start-level', id: continueLevel(save.unlocked, save.stars) })
+  })
 
   for (const surface of root.querySelectorAll<HTMLElement>('.overlay, .howto-sheet, .panel-body')) {
     surface.addEventListener('touchstart', (event) => event.stopPropagation(), { passive: true })
@@ -709,8 +727,24 @@ export function mountUi(root: HTMLElement): void {
     if (bossRow && bossFill) {
       const showBoss = snapshot.phase === 'playing' && snapshot.bossMax > 0
       bossRow.hidden = !showBoss
-      if (showBoss) bossFill.style.transform = `scaleX(${Math.max(0, snapshot.bossHp / snapshot.bossMax)})`
+      if (showBoss) {
+        bossFill.style.transform = `scaleX(${Math.max(0, snapshot.bossHp / snapshot.bossMax)})`
+        const label = root.querySelector('#boss-label')
+        if (label) label.textContent = snapshot.bossName || 'Boss'
+      }
     }
+    const driveFill = root.querySelector<HTMLElement>('#drive-fill')
+    const driveBtn = root.querySelector<HTMLButtonElement>('#overdrive-btn')
+    if (driveFill) driveFill.style.transform = `scaleX(${Math.max(0, Math.min(1, snapshot.drive))})`
+    if (driveBtn) {
+      const hot = snapshot.driveLeft > 0
+      driveBtn.disabled = !snapshot.driveReady
+      driveBtn.classList.toggle('ready', snapshot.driveReady)
+      driveBtn.classList.toggle('hot', hot)
+      driveBtn.textContent = hot ? snapshot.driveLeft.toFixed(1) : 'OD'
+      driveBtn.setAttribute('aria-label', hot ? 'Overdrive active' : snapshot.driveReady ? 'Fire overdrive' : 'Overdrive charging')
+    }
+    if (snapshot.phase === 'menu') paintContinue(root)
     paintDifficulty(root, snapshot.difficulty)
     if (seen.hp !== hp && hpFill) {
       hpFill.style.transform = `scaleX(${hp})`
@@ -953,8 +987,12 @@ function fillMap(root: HTMLElement): void {
     if (locked) button.classList.add('locked')
     if (level.boss !== 'none') button.classList.add('boss')
     const stars = save.stars[level.id] ?? 0
+    const next = continueLevel(save.unlocked, save.stars)
     button.disabled = locked
-    const starText = locked ? 'Locked' : '★★★'.slice(0, stars) + '☆☆☆'.slice(stars)
+    if (!locked && level.id === next) button.classList.add('next')
+    const starText = locked
+      ? '<span class="lock">Locked</span>'
+      : `${'<span class="on">★</span>'.repeat(stars)}${'<span class="off">☆</span>'.repeat(3 - stars)}`
     const best = save.bestLevel[level.id] ?? 0
     const bestText = best > 0 ? `<span class="best">${formatInt(best)}</span>` : ''
     button.innerHTML = `<span class="k">${level.id}</span><strong>${level.name}</strong><span class="stars">${starText}</span>${bestText}`
@@ -964,6 +1002,18 @@ function fillMap(root: HTMLElement): void {
     })
     host.appendChild(button)
   }
+}
+
+function paintContinue(root: HTMLElement): void {
+  const button = root.querySelector<HTMLButtonElement>('#continue-run')
+  if (!button) return
+  const save = loadSave()
+  const id = continueLevel(save.unlocked, save.stars)
+  const show = save.unlocked > 1 || (save.stars[1] ?? 0) > 0
+  button.hidden = !show
+  if (!show) return
+  const level = levelById(id)
+  button.textContent = `Continue · ${level.id} ${level.name}`
 }
 
 function fillShop(root: HTMLElement): void {

@@ -4,7 +4,7 @@ import { emitView, onCommand } from '../bridge'
 import { CHAIN_LEAD, LEVELS, buildLevelWave, chainReady, eventHp, levelById, shieldFor, slowOnKill } from '../campaign'
 import { ACHIEVEMENTS, bossReward, insertScore, newBadges } from '../board'
 import { CANNON, CAPSULE_LETTERS, takeCapsule, tapHitsDrop, weaponLabel, loseWeaponLevel, type CapsuleLetter, type WeaponState } from '../capsules'
-import { bossTier } from '../pace'
+import { bossProfile, bossTier } from '../pace'
 import {
   BALANCE,
   BOSSES,
@@ -32,8 +32,9 @@ import {
 import { dailyRand, todayKey } from '../daily'
 import { paintAction, paintBackdrop, type ActionFrame, type BackdropFrame, type Beam } from '../draw'
 import { empReach, inEmpRadius } from '../emp'
-import { armArmour, armCarrier, armDrone, armFlyby, armKamikaze, armMissile, armScout, armShard, armShield, armSplitter, armSwarm, armTank, makeEnemy, retune, stepEnemy } from '../entities/enemy'
-import { applyHit, type HitSource } from '../hits'
+import { armArmour, armCarrier, armDrone, armFlyby, armJammer, armKamikaze, armMissile, armPlate, armScout, armShard, armShield, armSplitter, armSwarm, armTank, makeEnemy, retune, sidestep, stepEnemy } from '../entities/enemy'
+import { applyHit, resistScale, type HitSource } from '../hits'
+import { OVERDRIVE_NEED, OVERDRIVE_SECONDS, addCharge, overdriveGain, overdriveInterval, overdrivePellets, overdriveReady } from '../overdrive'
 import { clamp, clampAim, lerpAngle, mulberry32 } from '../math'
 import { buildSkyline, roofAt, type Building, type Skyline } from '../skyline'
 import { defaultAutoFire, loadSave, saveGame, type SaveData } from '../storage'
@@ -102,6 +103,9 @@ export class PlayScene extends Phaser.Scene {
   private shieldRank = 0
   private durationRank = 0
   private bossClock = 2.2
+  private drive = 0
+  private driveT = 0
+  private muzzleKind = 'shell'
   private boost = { rapid: 0, spread: 0, shield: 0, slow: 0 }
   private drops: {
     x: number
@@ -261,6 +265,7 @@ export class PlayScene extends Phaser.Scene {
     if (this.shakeReady > 0) this.shakeReady -= dt
     if (this.hurt > 0) this.hurt = Math.max(0, this.hurt - dt * 2.4)
     if (this.muzzle > 0) this.muzzle = Math.max(0, this.muzzle - dt)
+    if (this.driveT > 0) this.driveT = Math.max(0, this.driveT - dt)
     if (this.fireHold > 0) this.fireHold = Math.max(0, this.fireHold - dt)
     this.tickTutorial(dt)
     if (this.bannerT > 0) {
@@ -399,6 +404,9 @@ export class PlayScene extends Phaser.Scene {
           audio.play('ui')
         }
         break
+      case 'overdrive':
+        this.beginOverdrive()
+        break
       case 'buy-skin':
         this.buySkin(command.id)
         break
@@ -493,6 +501,8 @@ export class PlayScene extends Phaser.Scene {
     this.starterRank = this.save.ranks.starter > 0 ? 1 : 0
     this.bossClock = 2.2
     this.power = CANNON
+    this.drive = 0
+    this.driveT = 0
     this.boost = { rapid: 0, spread: 0, shield: this.shieldRank, slow: 0 }
     this.save.stats.runs += 1
     this.drops = []
@@ -537,7 +547,13 @@ export class PlayScene extends Phaser.Scene {
       this.levelWaveCount = level.waves
       this.wave = this.levelWave
       spec = buildLevelWave(level, this.levelWave - 1, this.save.difficulty)
-      this.banner = this.levelWave === 1 ? level.name.toUpperCase() : `WAVE ${this.levelWave}/${level.waves}`
+      const named = bossProfile(this.levelId)
+      this.banner =
+        named && this.levelWave === level.waves
+          ? named.name.toUpperCase()
+          : this.levelWave === 1
+            ? level.name.toUpperCase()
+            : `WAVE ${this.levelWave}/${level.waves}`
     } else {
       this.wave += 1
       spec = buildWave(this.wave, this.rng)
@@ -630,39 +646,48 @@ export class PlayScene extends Phaser.Scene {
       return
     }
     const tier = this.mode === 'campaign' ? Math.max(1, bossTier(this.levelId)) : 1
-    this.bossClock = Math.max(1.5, 3.3 - tier * 0.14)
-    const volley = 1 + (tier % 3)
-    for (let n = 0; n < volley; n++) {
-      const shot = this.takeEnemy()
-      if (!shot) return
-      const lane = clamp(0.18 + n * 0.28, 0.12, 0.88)
-      const targetX = this.viewW * lane
-      if (tier % 2 === 0) {
-        armKamikaze(shot, {
-          unit: this.unit,
-          speedMul: this.speedMul,
-          wave: this.wave,
-          x: boss.x,
-          y: boss.y + 8,
-          targetX,
-          targetY: this.groundY,
-          arc: true,
-          arcAmp: (n - 1) * this.viewW * 0.08,
-        })
-      } else {
-        armScout(shot, {
-          unit: this.unit,
-          speedMul: this.speedMul,
-          wave: this.wave,
-          x: boss.x,
-          y: boss.y + 12,
-          targetX,
-          targetY: this.groundY,
-          entryX: boss.x + (n - 1) * 18,
-        })
-      }
+    const pattern = this.mode === 'campaign' ? (bossProfile(this.levelId)?.pattern ?? 'hangar') : 'hangar'
+    this.bossClock = pattern === 'lance' || pattern === 'ram' ? 1.35 : Math.max(1.5, 3.3 - tier * 0.14)
+    const lanes = bossLanes(pattern)
+    for (let n = 0; n < lanes.length; n++) {
+      this.launchBossShot(boss, lanes[n].kind, lanes[n].lane, lanes[n].arc)
     }
     audio.play('warn')
+  }
+
+  private launchBossShot(boss: Enemy, kind: 'scout' | 'kamikaze' | 'jammer' | 'plate' | 'shield', lane: number, arc: number): void {
+    const shot = this.takeEnemy()
+    if (!shot) return
+    const targetX = this.viewW * clamp(lane, 0.12, 0.88)
+    const common = {
+      unit: this.unit,
+      speedMul: this.speedMul,
+      wave: this.wave,
+      x: boss.x,
+      y: boss.y + 10,
+      targetX,
+      targetY: this.groundY,
+    }
+    if (kind === 'kamikaze') {
+      armKamikaze(shot, { ...common, arc: true, arcAmp: arc * this.viewW * 0.12 })
+      return
+    }
+    const entryX = boss.x + (lane - 0.5) * 24
+    if (kind === 'jammer') armJammer(shot, { ...common, entryX })
+    else if (kind === 'plate') armPlate(shot, { ...common, entryX })
+    else if (kind === 'shield') armShield(shot, { ...common, entryX }, 3)
+    else armScout(shot, { ...common, entryX })
+  }
+
+  private beginOverdrive(): void {
+    if (this.phase !== 'playing' || this.paused) return
+    if (!overdriveReady(this.drive, this.driveT > 0)) return
+    this.drive = 0
+    this.driveT = OVERDRIVE_SECONDS
+    this.flash = 0.55
+    this.popup('OVERDRIVE', this.turretX, this.turretY - this.unit * 36, '#ffb15a')
+    audio.play('upgrade')
+    this.buzz(18)
   }
 
   private maybeDrop(x: number, y: number): void {
@@ -691,6 +716,9 @@ export class PlayScene extends Phaser.Scene {
       const next = takeCapsule(this.power, drop.letter, 1 + this.starterRank)
       this.power = next.state
       this.popup(next.popup, drop.x, drop.y - 16, '#ffb15a')
+      this.spark(drop.x, drop.y, 0xffe7a8)
+      this.spark(drop.x, drop.y - 8, 0x9af6ff)
+      if (next.popup === 'MAX') this.flash = 1
       audio.play('upgrade')
     } else if (drop.kind === 'shield') {
       this.boost.shield = Math.min(5, this.boost.shield + 1)
@@ -787,6 +815,7 @@ export class PlayScene extends Phaser.Scene {
     for (let i = 0; i < this.enemies.length; i++) {
       const e = this.enemies[i]
       if (!e.active || e.attract) continue
+      sidestep(e, this.bullets, dt)
       stepEnemy(e, dt * (this.boost.slow > 0 ? 0.62 : 1), world)
     }
 
@@ -796,7 +825,7 @@ export class PlayScene extends Phaser.Scene {
     } else if (this.power.letter !== 'C') {
       if (firing) {
         this.fireCooldown -= dt
-        const interval = this.powerInterval()
+        const interval = overdriveInterval(this.powerInterval(), this.driveT > 0)
         let guard = 0
         while (this.fireCooldown <= 0 && guard < 3) {
           this.shootPower()
@@ -814,7 +843,7 @@ export class PlayScene extends Phaser.Scene {
       this.fireCooldown -= dt
       let guard = 0
       const baseInterval = this.weapon === 'missile' ? WEAPONS.missile.interval : fireInterval(this.rateLevel)
-      const interval = baseInterval * (this.boost.rapid > 0 ? 0.62 : 1)
+      const interval = overdriveInterval(baseInterval * (this.boost.rapid > 0 ? 0.62 : 1), this.driveT > 0 && this.power.letter === 'C')
       while (this.fireCooldown <= 0 && guard < 3) {
         this.shoot()
         this.fireCooldown += interval
@@ -1006,12 +1035,21 @@ export class PlayScene extends Phaser.Scene {
     } else if (ev.kind === 'carrier') {
       armCarrier(e, { ...common, entryX: spot.targetX, y: -40 })
       this.carrierTimer = 1.4
-    } else if (ev.kind === 'scout' || ev.kind === 'tank' || ev.kind === 'splitter' || ev.kind === 'shield') {
+    } else if (
+      ev.kind === 'scout' ||
+      ev.kind === 'tank' ||
+      ev.kind === 'splitter' ||
+      ev.kind === 'shield' ||
+      ev.kind === 'jammer' ||
+      ev.kind === 'plate'
+    ) {
       const entryX = clamp(spot.targetX + (Math.random() - 0.5) * this.unit * 70, 16, this.viewW - 16)
       const opts = { ...common, entryX, y: -24 }
       if (ev.kind === 'scout') armScout(e, opts)
       else if (ev.kind === 'tank') armTank(e, opts)
       else if (ev.kind === 'splitter') armSplitter(e, opts)
+      else if (ev.kind === 'jammer') armJammer(e, opts)
+      else if (ev.kind === 'plate') armPlate(e, opts)
       else armShield(e, opts, 4)
     } else if (ev.kind === 'kamikaze') {
       armKamikaze(e, { ...common, arc: ev.arc, arcAmp: ev.arcAmp * this.viewW * 0.2 })
@@ -1058,7 +1096,8 @@ export class PlayScene extends Phaser.Scene {
     const tipY = pivotY + Math.sin(angle) * this.barrel
     const base = shellDamage(this.damageLevel)
     if (letter === 'H') {
-      const count = level >= 3 ? 2 : 1
+      const count = overdrivePellets(level >= 3 ? 2 : 1, this.driveT > 0, 'H')
+      this.muzzleKind = 'homing'
       for (let i = 0; i < count; i++) {
         const b = this.takeBullet()
         if (!b) break
@@ -1071,13 +1110,17 @@ export class PlayScene extends Phaser.Scene {
     if (letter === 'F') {
       const b = this.takeBullet()
       if (!b) return
-      this.armBullet(b, tipX, tipY, angle, BALANCE.bulletSpeed * 0.72 * this.unit, base, this.unit * (16 + level * 8), false, false)
+      const splash = this.unit * (16 + level * 8) * (this.driveT > 0 ? 1.45 : 1)
+      this.armBullet(b, tipX, tipY, angle, BALANCE.bulletSpeed * 0.72 * this.unit, base, splash, false, false)
       b.r = this.unit * (5 + level)
+      b.heat = true
+      this.muzzleKind = 'flame'
       audio.play('flame')
       return
     }
     if (letter === 'S') {
-      const pellets = Math.min(5, 2 + level)
+      const pellets = overdrivePellets(Math.min(5, 2 + level), this.driveT > 0, 'S')
+      this.muzzleKind = 'fan'
       const step = 0.16 + level * 0.015
       const start = -step * (pellets - 1) * 0.5
       for (let i = 0; i < pellets; i++) {
@@ -1091,6 +1134,11 @@ export class PlayScene extends Phaser.Scene {
     const b = this.takeBullet()
     if (!b) return
     this.armBullet(b, tipX, tipY, angle, BALANCE.bulletSpeed * 1.15 * this.unit, Math.max(1, base * 0.8), 0, false, false)
+    this.muzzleKind = 'mg'
+    if (this.driveT > 0) {
+      const twin = this.takeBullet()
+      if (twin) this.armBullet(twin, tipX, tipY, angle + 0.06, BALANCE.bulletSpeed * 1.15 * this.unit, Math.max(1, base * 0.8), 0, false, false)
+    }
     audio.play('mg')
   }
 
@@ -1124,6 +1172,7 @@ export class PlayScene extends Phaser.Scene {
     b.skin = homing ? this.save.missileSkin : 'standard'
     b.pierce = pierce
     b.id = pierce ? ++this.bulletSerial : 0
+    b.heat = false
   }
 
   private firePowerLaser(dt: number): void {
@@ -1141,8 +1190,10 @@ export class PlayScene extends Phaser.Scene {
     this.laserTick -= dt
     if (this.laserTick > 0) return
     this.laserTick = 0.1
-    const thick = this.unit * (5 + this.power.level * 3)
-    const damage = 0.7 + this.power.level * 0.28 + this.damageLevel * 0.12
+    const thick = this.unit * (5 + this.power.level * 3) * (this.driveT > 0 ? 1.45 : 1)
+    const damage = (0.7 + this.power.level * 0.28 + this.damageLevel * 0.12) * (this.driveT > 0 ? 1.65 : 1)
+    this.muzzleKind = 'beam'
+    this.muzzle = 0.08
     for (let i = 0; i < this.enemies.length; i++) {
       const enemy = this.enemies[i]
       if (!enemy.active || enemy.attract) continue
@@ -1166,7 +1217,12 @@ export class PlayScene extends Phaser.Scene {
     const tipX = pivotX + c * this.barrel
     const tipY = pivotY + s * this.barrel
     const homing = this.weapon === 'missile'
-    const pellets = (homing ? 1 : pelletCount(this.spreadLevel)) + (this.boost.spread > 0 && !homing ? 1 : 0)
+    const pellets = overdrivePellets(
+      (homing ? 1 : pelletCount(this.spreadLevel)) + (this.boost.spread > 0 && !homing ? 1 : 0),
+      this.driveT > 0 && this.power.letter === 'C',
+      'C',
+    )
+    this.muzzleKind = homing ? 'homing' : 'shell'
     const step = spreadStep(this.spreadLevel)
     const start = -step * (pellets - 1) * 0.5
     const damage = homing ? WEAPONS.missile.damage + this.damageLevel : shellDamage(this.damageLevel)
@@ -1230,7 +1286,7 @@ export class PlayScene extends Phaser.Scene {
       b.life -= dt
       if (hit) {
         if (b.splash > 0) this.collectSplash(b, hit)
-        const source: HitSource = b.homing ? 'missile' : 'cannon'
+        const source: HitSource = b.heat ? 'flame' : b.homing ? 'missile' : 'cannon'
         this.damageEnemy(hit, b.damage, source)
         for (let s = 0; s < this.splashBuf.length; s++) this.damageEnemy(this.splashBuf[s], b.damage, source)
         this.popRound(b)
@@ -1269,7 +1325,8 @@ export class PlayScene extends Phaser.Scene {
 
   private damageEnemy(e: Enemy, amount: number, source: HitSource): void {
     if (!e.active || e.attract) return
-    const hit = applyHit(e.hp, e.shield, amount, source)
+    const scaled = amount * resistScale(e.kind, source)
+    const hit = applyHit(e.hp, e.shield, scaled, source)
     e.hp = hit.hp
     e.shield = hit.shield
     e.flash = 0.12
@@ -1279,7 +1336,7 @@ export class PlayScene extends Phaser.Scene {
       return
     }
     this.buzz(10)
-    if (amount >= 1) this.popup(String(Math.ceil(amount)), e.x + e.r * 0.4, e.y - e.r, '#ffffff')
+    if (scaled >= 1) this.popup(String(Math.ceil(scaled)), e.x + e.r * 0.4, e.y - e.r, '#ffffff')
     if (e.hp <= 0) this.killEnemy(e)
   }
 
@@ -1322,6 +1379,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private registerKill(e: Enemy, x: number, y: number): void {
+    this.drive = addCharge(this.drive, overdriveGain(e.kind), this.driveT > 0)
     this.kills += 1
     this.killsThisWave += 1
     if (this.comboTime > 0) this.mult = Math.min(BALANCE.maxMult, this.mult + 1)
@@ -1736,6 +1794,7 @@ export class PlayScene extends Phaser.Scene {
       empPulses: this.empPulses,
       turretSkin: this.save.turretSkin,
       drops: this.drops,
+      muzzleKind: this.muzzleKind,
     }
     paintAction(this.fx, frame)
   }
@@ -1816,6 +1875,10 @@ export class PlayScene extends Phaser.Scene {
         : this.power.level >= 4
           ? `${this.power.letter} MAX`
           : `${this.power.letter}${this.power.level}`
+    v.drive = this.drive / OVERDRIVE_NEED
+    v.driveReady = overdriveReady(this.drive, this.driveT > 0)
+    v.driveLeft = this.driveT
+    v.bossName = this.mode === 'campaign' ? (bossProfile(this.levelId)?.name ?? '') : ''
     if (this.mode === 'endless') v.best = this.save.bestEndless
     emitView(v)
     this.publishDebug()
@@ -2173,7 +2236,13 @@ export class PlayScene extends Phaser.Scene {
       lastEmpRadius: this.lastEmpRadius,
       missileSkin: this.save.missileSkin,
       coins: this.save.coins,
-      inject: (kind: 'drone' | 'missile' | 'armour' | 'swarm' | 'carrier' | 'scout' | 'shield') => this.injectProbe(kind),
+      inject: (kind: 'drone' | 'missile' | 'armour' | 'swarm' | 'carrier' | 'scout' | 'shield' | 'jammer' | 'plate') =>
+        this.injectProbe(kind),
+      fillDrive: () => {
+        this.drive = OVERDRIVE_NEED
+      },
+      fireDrive: () => this.beginOverdrive(),
+      drive: () => ({ charge: this.drive, left: this.driveT }),
       spawnCapsule: (letter: CapsuleLetter) => {
         this.drops.push({
           x: this.viewW * 0.62,
@@ -2193,7 +2262,7 @@ export class PlayScene extends Phaser.Scene {
     ;(window as Window & { __DRONE_DEBUG__?: typeof api }).__DRONE_DEBUG__ = api
   }
 
-  private injectProbe(kind: 'drone' | 'missile' | 'armour' | 'swarm' | 'carrier' | 'scout' | 'shield'): boolean {
+  private injectProbe(kind: 'drone' | 'missile' | 'armour' | 'swarm' | 'carrier' | 'scout' | 'shield' | 'jammer' | 'plate'): boolean {
     if (this.phase !== 'playing') return false
     const e = this.takeEnemy()
     if (!e) return false
@@ -2212,6 +2281,8 @@ export class PlayScene extends Phaser.Scene {
     else if (kind === 'missile') armMissile(e, { ...common, y: -16, arc: false, arcAmp: 0 })
     else if (kind === 'armour') armArmour(e, { ...common, y: this.viewH * 0.22, arc: true, arcAmp: 30 })
     else if (kind === 'carrier') armCarrier(e, { ...common, entryX: common.x, y: this.viewH * 0.24 })
+    else if (kind === 'jammer') armJammer(e, { ...common, entryX: common.x, y: this.viewH * 0.32 })
+    else if (kind === 'plate') armPlate(e, { ...common, entryX: common.x, y: this.viewH * 0.28 })
     else armSwarm(e, { ...common, entryX: this.viewW * 0.3, y: this.viewH * 0.3 })
     if (this.mode === 'campaign') {
       const hp = eventHp(kind, this.levelId, this.save.difficulty)
@@ -2327,6 +2398,59 @@ function makeBullet(): Bullet {
     skin: 'standard',
     pierce: false,
     id: 0,
+    heat: false,
+  }
+}
+
+function bossLanes(pattern: string): { kind: 'scout' | 'kamikaze' | 'jammer' | 'plate' | 'shield'; lane: number; arc: number }[] {
+  switch (pattern) {
+    case 'lance':
+      return [
+        { kind: 'kamikaze', lane: 0.35, arc: 0.1 },
+        { kind: 'kamikaze', lane: 0.65, arc: -0.1 },
+      ]
+    case 'brood':
+      return [
+        { kind: 'kamikaze', lane: 0.22, arc: 0.45 },
+        { kind: 'kamikaze', lane: 0.5, arc: 0 },
+        { kind: 'kamikaze', lane: 0.78, arc: -0.45 },
+      ]
+    case 'ram':
+      return [{ kind: 'plate', lane: 0.5, arc: 0 }]
+    case 'nest':
+      return [
+        { kind: 'jammer', lane: 0.28, arc: 0 },
+        { kind: 'scout', lane: 0.72, arc: 0 },
+      ]
+    case 'kiln':
+      return [
+        { kind: 'kamikaze', lane: 0.18, arc: 0.7 },
+        { kind: 'kamikaze', lane: 0.82, arc: -0.7 },
+      ]
+    case 'slate':
+      return [{ kind: 'shield', lane: 0.5, arc: 0 }]
+    case 'causeway':
+      return [
+        { kind: 'scout', lane: 0.2, arc: 0 },
+        { kind: 'jammer', lane: 0.5, arc: 0 },
+        { kind: 'scout', lane: 0.8, arc: 0 },
+      ]
+    case 'orchard':
+      return [
+        { kind: 'jammer', lane: 0.32, arc: 0 },
+        { kind: 'plate', lane: 0.68, arc: 0 },
+      ]
+    case 'closing':
+      return [
+        { kind: 'kamikaze', lane: 0.25, arc: 0.3 },
+        { kind: 'plate', lane: 0.5, arc: 0 },
+        { kind: 'jammer', lane: 0.75, arc: 0 },
+      ]
+    default:
+      return [
+        { kind: 'scout', lane: 0.32, arc: 0 },
+        { kind: 'scout', lane: 0.68, arc: 0 },
+      ]
   }
 }
 

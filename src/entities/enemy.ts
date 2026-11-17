@@ -313,6 +313,30 @@ export function armKamikaze(e: Enemy, o: ArmBase & { arc: boolean; arcAmp: numbe
   retune(e, o.unit)
 }
 
+export function armJammer(e: Enemy, o: ArmBase & { entryX: number }): void {
+  armDrone(e, o)
+  e.kind = 'jammer'
+  e.baseR = 15
+  e.baseSpeed = 84
+  e.baseAmp = 52
+  e.freq = 3.6
+  e.score = 130
+  e.city = 7
+  retune(e, o.unit)
+}
+
+export function armPlate(e: Enemy, o: ArmBase & { entryX: number }): void {
+  armDrone(e, o)
+  e.kind = 'plate'
+  e.baseR = 20
+  e.baseSpeed = 36
+  e.baseAmp = 8
+  e.freq = 0.8
+  e.score = 190
+  e.city = 11
+  retune(e, o.unit)
+}
+
 export function armShield(e: Enemy, o: ArmBase & { entryX: number }, shield: number): void {
   armDrone(e, o)
   e.kind = 'shield'
@@ -325,6 +349,30 @@ export function armShield(e: Enemy, o: ArmBase & { entryX: number }, shield: num
   e.score = 160
   e.city = 8
   retune(e, o.unit)
+}
+
+/** Jammers sidestep incoming shells. Homing rounds are left to track. */
+export function sidestep(
+  e: Enemy,
+  threats: readonly { active: boolean; x: number; y: number; vx: number; vy: number; homing: boolean }[],
+  dt: number,
+): void {
+  if (!e.active || e.kind !== 'jammer' || e.stun > 0) return
+  let push = 0
+  const reach = 120
+  for (let i = 0; i < threats.length; i++) {
+    const b = threats[i]
+    if (!b.active || b.homing) continue
+    const dx = e.x - b.x
+    const dy = e.y - b.y
+    const d2 = dx * dx + dy * dy
+    if (d2 > reach * reach || d2 < 4) continue
+    if (b.vx * dx + b.vy * dy <= 0) continue
+    const side = dx * b.vy - dy * b.vx
+    push += side >= 0 ? 1 : -1
+  }
+  if (push === 0) return
+  e.centerX += Math.sign(push) * 240 * dt
 }
 
 export function stepEnemy(e: Enemy, dt: number, world: StepWorld): boolean {

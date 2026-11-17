@@ -27,6 +27,8 @@ export type PaceKind =
   | 'marker'
   | 'carrier'
   | 'armour'
+  | 'jammer'
+  | 'plate'
 
 export interface PaceEvent {
   at: number
@@ -98,6 +100,39 @@ export function waveCountFor(levelId: number): number {
   if (levelId <= 40) return 6
   if (levelId <= 60) return 7
   return 8
+}
+
+export interface BossProfile {
+  name: string
+  pattern: 'hangar' | 'lance' | 'brood' | 'ram' | 'nest' | 'kiln' | 'slate' | 'causeway' | 'orchard' | 'closing'
+}
+
+const BOSS_PROFILES: readonly BossProfile[] = [
+  { name: 'Hangar Moth', pattern: 'hangar' },
+  { name: 'Iron Lance', pattern: 'lance' },
+  { name: 'Brood Lantern', pattern: 'brood' },
+  { name: 'Slate Ram', pattern: 'ram' },
+  { name: 'Nest Crown', pattern: 'nest' },
+  { name: 'Kiln Dart', pattern: 'kiln' },
+  { name: 'Pale Brood', pattern: 'slate' },
+  { name: 'Causeway Queen', pattern: 'causeway' },
+  { name: 'Orchard Heart', pattern: 'orchard' },
+  { name: 'Closing Battery', pattern: 'closing' },
+]
+
+export function bossProfile(levelId: number): BossProfile | null {
+  const tier = bossTier(levelId)
+  if (tier <= 0) return null
+  return BOSS_PROFILES[tier - 1] ?? null
+}
+
+/** First unlocked level that still has no stars. */
+export function continueLevel(unlocked: number, stars: readonly number[]): number {
+  const cap = clamp(Math.floor(unlocked) || 1, 1, NAMES.length)
+  for (let id = 1; id <= cap; id++) {
+    if ((stars[id] ?? 0) <= 0) return id
+  }
+  return cap
 }
 
 /** 1 on level 10 through 10 on level 100. 0 on other levels. */
@@ -177,7 +212,11 @@ function bodyHp(kind: Exclude<PaceKind, 'marker' | 'carrier' | 'armour'>, levelI
                 ? 2
                 : kind === 'missile'
                   ? 2
-                  : 5
+                  : kind === 'jammer'
+                    ? 1
+                    : kind === 'plate'
+                      ? 3
+                      : 5
   const growth = 1 + p * 2.4
   return Math.max(1, Math.round(base * growth * DIFFICULTY[difficulty].hp))
 }
@@ -350,8 +389,35 @@ export function buildWaveEvents(levelId: number, waveIndex: number, difficulty: 
     if (tier >= 10) push(events, 2, 'kamikaze', 0.5, 'top', true, 0.4)
   }
 
+  retintSpecials(events, levelId)
   events.sort((a, b) => a.at - b.at)
   return events
+}
+
+/** Swap a few existing spawns for jammers and plates without adding hull. */
+function retintSpecials(events: PaceEvent[], levelId: number): void {
+  if (levelId >= 6) {
+    let scouts = 0
+    let last = -1
+    let flipped = false
+    for (let i = 0; i < events.length; i++) {
+      if (events[i].kind !== 'scout') continue
+      scouts += 1
+      last = i
+      if (scouts % 3 === 0) {
+        events[i].kind = 'jammer'
+        flipped = true
+      }
+    }
+    if (!flipped && last >= 0) events[last].kind = 'jammer'
+  }
+  if (levelId >= 18) {
+    for (let i = 0; i < events.length; i++) {
+      if (events[i].kind !== 'tank') continue
+      events[i].kind = 'plate'
+      break
+    }
+  }
 }
 
 export function eventHp(kind: PaceKind, levelId: number, difficulty: Difficulty): number {

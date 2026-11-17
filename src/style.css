@@ -464,6 +464,44 @@ body.is-playing #game canvas {
   background: linear-gradient(90deg, #ff3358, #ffb15a);
 }
 
+#drive-fill {
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  transform: scaleX(0);
+  background: linear-gradient(90deg, #9af6ff, #ffb15a);
+}
+
+.drive-row { pointer-events: none; }
+
+.drive-btn {
+  pointer-events: auto;
+  touch-action: manipulation;
+  flex: none;
+  min-width: 44px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(154, 246, 255, 0.35);
+  background: rgba(8, 14, 28, 0.72);
+  color: var(--muted);
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.drive-btn.ready {
+  background: var(--amber);
+  color: #1a1208;
+  border-color: var(--amber);
+}
+
+.drive-btn.hot {
+  background: #ff4d63;
+  color: #fff8f4;
+  border-color: #ff4d63;
+}
+
 .diff {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1007,12 +1045,24 @@ body.touch-ui .keys-desktop { display: none !important; }
 
 .map .node .stars {
   color: var(--amber);
-  letter-spacing: 0.06em;
-  font-size: 12px;
+  letter-spacing: 0.08em;
+  font-size: 13px;
 }
 
-.map .node.locked { opacity: 0.45; }
+.map .node .stars .off { color: rgba(244, 241, 234, 0.28); }
+.map .node .stars .lock { color: var(--muted); letter-spacing: 0.04em; font-size: 11px; }
+
+.map .node.locked {
+  opacity: 0.5;
+  border-style: dashed;
+  background: rgba(0, 0, 0, 0.28);
+}
 .map .node.locked .stars { color: var(--muted); }
+
+.map .node.next {
+  border-color: var(--cyan);
+  box-shadow: 0 0 16px rgba(154, 246, 255, 0.28);
+}
 
 .map .node.boss {
   border-color: rgba(255, 177, 90, 0.62);
