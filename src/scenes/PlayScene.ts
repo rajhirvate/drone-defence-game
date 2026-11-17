@@ -2,6 +2,8 @@ import Phaser from 'phaser'
 import { audio } from '../audio'
 import { emitView, onCommand } from '../bridge'
 import { CHAIN_LEAD, LEVELS, buildLevelWave, chainReady, eventHp, levelById, shieldFor, slowOnKill } from '../campaign'
+import { ACHIEVEMENTS, bossReward, insertScore, newBadges } from '../board'
+import { bossTier } from '../pace'
 import {
   BALANCE,
   BOSSES,
@@ -96,6 +98,9 @@ export class PlayScene extends Phaser.Scene {
   private damageLevel = 0
   private empRank = 0
   private vitalRank = 0
+  private shieldRank = 0
+  private durationRank = 0
+  private bossClock = 2.2
   private boost = { rapid: 0, spread: 0, shield: 0, slow: 0 }
   private drops: { x: number; y: number; kind: 'rapid' | 'spread' | 'shield' | 'slow'; life: number }[] = []
   private autoFire = false
@@ -172,6 +177,7 @@ export class PlayScene extends Phaser.Scene {
     this.haptics = this.save.haptics
     this.reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
     audio.setMuted(this.muted)
+    audio.setMusic(this.save.music)
     this.stars = makeStars(72)
     this.preallocate()
     this.cameras.main.setBackgroundColor('#070914')
@@ -271,7 +277,7 @@ export class PlayScene extends Phaser.Scene {
     this.spin += this.spinSpeed * dt
     this.aimDisplay = lerpAngle(this.aimDisplay, this.aim, 1 - Math.exp(-16 * dt))
 
-    const idle = this.phase === 'menu' || this.phase === 'map' || this.phase === 'armoury' || this.phase === 'skins'
+    const idle = this.phase === 'menu' || this.phase === 'map' || this.phase === 'armoury' || this.phase === 'skins' || this.phase === 'badges' || this.phase === 'stats'
     if (idle) {
       this.aimAttract()
       this.updateAttract(dt)
@@ -405,6 +411,7 @@ export class PlayScene extends Phaser.Scene {
         this.muted = !this.muted
         this.save.muted = this.muted
         audio.setMuted(this.muted)
+        audio.setMusic(this.save.music)
         saveGame(this.save)
         if (!this.muted) audio.unlock()
         audio.play('ui')
@@ -420,6 +427,24 @@ export class PlayScene extends Phaser.Scene {
         this.save.haptics = this.haptics
         saveGame(this.save)
         audio.play('ui')
+        break
+      case 'toggle-music':
+        this.save.music = !this.save.music
+        audio.setMusic(this.save.music)
+        saveGame(this.save)
+        audio.play('ui')
+        break
+      case 'open-badges':
+        this.paused = false
+        this.phase = 'badges'
+        break
+      case 'open-stats':
+        this.paused = false
+        this.phase = 'stats'
+        break
+      case 'close-meta':
+        this.paused = false
+        this.phase = 'menu'
         break
       case 'skip-tutorial':
         this.tutorialStep = -1
@@ -451,7 +476,11 @@ export class PlayScene extends Phaser.Scene {
     this.damageLevel = this.save.ranks.damage
     this.empRank = this.save.ranks.emp
     this.vitalRank = this.save.ranks.vital
-    this.boost = { rapid: 0, spread: 0, shield: 0, slow: 0 }
+    this.shieldRank = this.save.ranks.shield
+    this.durationRank = this.save.ranks.duration
+    this.bossClock = 2.2
+    this.boost = { rapid: 0, spread: 0, shield: this.shieldRank, slow: 0 }
+    this.save.stats.runs += 1
     this.drops = []
     this.newBest = false
     this.repairShown = 0
@@ -473,7 +502,7 @@ export class PlayScene extends Phaser.Scene {
     this.phase = 'playing'
     this.aim = -Math.PI / 2
     this.aimDisplay = this.aim
-    if (!this.save.tutorialSeen) {
+    if (!this.save.tutorialSeen && (this.mode !== 'campaign' || this.levelId === 1)) {
       this.tutorialStep = 0
       this.tutorialT = 5
     } else {
@@ -549,6 +578,78 @@ export class PlayScene extends Phaser.Scene {
     return empCooldown(this.empRank)
   }
 
+  private boostSeconds(): number {
+    return 5.5 + this.durationRank * 1.15
+  }
+
+  private noteBadges(): void {
+    const fresh = newBadges(this.save.stats, this.save.achievements)
+    if (fresh.length === 0) return
+    for (const id of fresh) this.save.achievements.push(id)
+    const name = ACHIEVEMENTS.find((badge) => badge.id === fresh[0])?.name ?? 'Badge'
+    this.skinToast = `Badge: ${name}`
+    this.skinToastT = 2.6
+  }
+
+  private payBoss(x: number, y: number): void {
+    const prize = this.mode === 'campaign' ? bossReward(this.levelId) : 40
+    this.save.stats.bosses += 1
+    if (prize > 0) {
+      this.save.coins += prize
+      this.save.stats.coinsEarned += prize
+      this.popup(`BOSS +${prize}`, x, y - 36, '#ffb15a')
+    }
+    this.noteBadges()
+  }
+
+  private tickBossAttack(dt: number): void {
+    this.bossClock -= dt
+    if (this.bossClock > 0) return
+    let boss: Enemy | null = null
+    for (let i = 0; i < this.enemies.length; i++) {
+      const enemy = this.enemies[i]
+      if (enemy.active && !enemy.attract && (enemy.kind === 'carrier' || enemy.kind === 'armour')) boss = enemy
+    }
+    if (!boss) {
+      this.bossClock = 0.4
+      return
+    }
+    const tier = this.mode === 'campaign' ? Math.max(1, bossTier(this.levelId)) : 1
+    this.bossClock = Math.max(1.5, 3.3 - tier * 0.14)
+    const volley = 1 + (tier % 3)
+    for (let n = 0; n < volley; n++) {
+      const shot = this.takeEnemy()
+      if (!shot) return
+      const lane = clamp(0.18 + n * 0.28, 0.12, 0.88)
+      const targetX = this.viewW * lane
+      if (tier % 2 === 0) {
+        armKamikaze(shot, {
+          unit: this.unit,
+          speedMul: this.speedMul,
+          wave: this.wave,
+          x: boss.x,
+          y: boss.y + 8,
+          targetX,
+          targetY: this.groundY,
+          arc: true,
+          arcAmp: (n - 1) * this.viewW * 0.08,
+        })
+      } else {
+        armScout(shot, {
+          unit: this.unit,
+          speedMul: this.speedMul,
+          wave: this.wave,
+          x: boss.x,
+          y: boss.y + 12,
+          targetX,
+          targetY: this.groundY,
+          entryX: boss.x + (n - 1) * 18,
+        })
+      }
+    }
+    audio.play('warn')
+  }
+
   private maybeDrop(x: number, y: number): void {
     if (this.drops.length > 0 || Math.random() > 0.04) return
     const roll = Math.random()
@@ -567,8 +668,8 @@ export class PlayScene extends Phaser.Scene {
       drop.y += this.unit * 70 * dt
       const near = Math.hypot(drop.x - this.turretX, drop.y - this.turretY) < this.unit * 46
       if (near) {
-        if (drop.kind === 'shield') this.boost.shield = 1
-        else this.boost[drop.kind] = 5.5
+        if (drop.kind === 'shield') this.boost.shield = Math.min(5, this.boost.shield + 1)
+        else this.boost[drop.kind] = this.boostSeconds()
         this.popup(drop.kind.toUpperCase(), drop.x, drop.y, '#ffb15a')
         audio.play('upgrade')
         continue
@@ -589,7 +690,9 @@ export class PlayScene extends Phaser.Scene {
     else if (id === 'spread') this.spreadLevel = Math.min(SHOP.maxRank, this.spreadLevel + 1)
     else if (id === 'damage') this.damageLevel = Math.min(SHOP.maxRank, this.damageLevel + 1)
     else if (id === 'emp') this.empRank = Math.min(SHOP.maxRank, this.empRank + 1)
-    else this.vitalRank = Math.min(SHOP.maxRank, this.vitalRank + 1)
+    else if (id === 'vital') this.vitalRank = Math.min(SHOP.maxRank, this.vitalRank + 1)
+    else if (id === 'shield') this.shieldRank = Math.min(SHOP.maxRank, this.shieldRank + 1)
+    else this.durationRank = Math.min(SHOP.maxRank, this.durationRank + 1)
     audio.play('upgrade')
     this.phase = 'playing'
     this.beginWave()
@@ -651,6 +754,7 @@ export class PlayScene extends Phaser.Scene {
       this.fireCooldown = 0
     }
     this.launchCarrierMinis(dt)
+    this.tickBossAttack(dt)
 
     this.updateBullets(dt)
     this.impacts()
@@ -975,8 +1079,10 @@ export class PlayScene extends Phaser.Scene {
     e.flash = 0.12
     if (hit.blocked) {
       this.popup('SHIELD', e.x, e.y - e.r, '#9af6ff')
+      this.buzz(8)
       return
     }
+    this.buzz(10)
     if (amount >= 1) this.popup(String(Math.ceil(amount)), e.x + e.r * 0.4, e.y - e.r, '#ffffff')
     if (e.hp <= 0) this.killEnemy(e)
   }
@@ -995,6 +1101,7 @@ export class PlayScene extends Phaser.Scene {
     if (boss || kind === 'swarm' || kind === 'splitter' || kind === 'kamikaze' || kind === 'tank') {
       this.kick(boss ? 0.014 : 0.006, boss ? 200 : 110)
     }
+    if (boss) this.payBoss(x, y)
     if (
       slowOnKill({
         mode: this.mode,
@@ -1029,6 +1136,10 @@ export class PlayScene extends Phaser.Scene {
     const coins = COINS[e.kind]
     this.save.coins += coins
     this.runCoins += coins
+    this.save.stats.kills += 1
+    this.save.stats.coinsEarned += coins
+    if (this.mult > this.save.stats.bestCombo) this.save.stats.bestCombo = this.mult
+    this.noteBadges()
     saveGame(this.save)
     this.noteBest()
     const color = this.mult >= 4 ? '#ffb15a' : this.mult >= 2 ? '#9af6ff' : '#f4f1ea'
@@ -1048,7 +1159,7 @@ export class PlayScene extends Phaser.Scene {
   private cityImpact(e: Enemy): void {
     e.active = false
     if (this.boost.shield > 0) {
-      this.boost.shield = 0
+      this.boost.shield -= 1
       this.popup('SHIELD', e.x, e.y, '#b6f27a')
       audio.play('ui')
       return
@@ -1102,10 +1213,13 @@ export class PlayScene extends Phaser.Scene {
   private finishLevel(): void {
     const level = levelById(this.levelId)
     const stars = starsFor(this.cityHp, this.maxCity())
-    const previousBest = this.save.bestLevel[level.id] ?? 0
-    if (this.score > previousBest) this.save.bestLevel[level.id] = this.score
+    this.save.scores[level.id] = insertScore(this.save.scores[level.id] ?? [], this.score)
+    this.save.bestLevel[level.id] = this.save.scores[level.id][0] ?? this.score
     const bonus = level.coins + stars * 8
     this.save.coins += bonus
+    this.save.stats.coinsEarned += bonus
+    this.save.stats.cleared = Math.max(this.save.stats.cleared, level.id)
+    this.noteBadges()
     this.save.stars[level.id] = Math.max(this.save.stars[level.id] ?? 0, stars)
     if (level.id >= this.save.unlocked && level.id < LEVELS.length) this.save.unlocked = level.id + 1
     if (level.grant) this.save.owned[level.grant] = true
@@ -1134,8 +1248,10 @@ export class PlayScene extends Phaser.Scene {
       const date = this.dailyDate || todayKey()
       const prev = this.save.dailyBest[date] ?? 0
       if (this.score > prev) {
+        if (prev <= 0) this.save.stats.dailies += 1
         this.save.dailyBest[date] = this.score
         this.newBest = true
+        this.noteBadges()
         saveGame(this.save)
       }
       this.best = this.save.dailyBest[date] ?? this.score

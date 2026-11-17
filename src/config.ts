@@ -4,7 +4,7 @@ export const GAME_TITLE = 'Drone Defence'
 export const GAME_DESCRIPTION =
   'Arcade defence game. Aim a turret and shoot down fictional drones and missiles before they reach the city skyline.'
 
-export type UpgradeId = 'rate' | 'spread' | 'damage' | 'emp' | 'vital'
+export type UpgradeId = 'rate' | 'spread' | 'damage' | 'emp' | 'vital' | 'shield' | 'duration'
 
 export interface UpgradeDef {
   id: UpgradeId
@@ -37,6 +37,16 @@ export const UPGRADES: readonly UpgradeDef[] = [
     id: 'vital',
     name: 'City Plating',
     blurb: 'The skyline holds more damage.',
+  },
+  {
+    id: 'shield',
+    name: 'Shield HP',
+    blurb: 'Start a level with extra shield hits.',
+  },
+  {
+    id: 'duration',
+    name: 'Power-up Time',
+    blurb: 'Pickups last longer.',
   },
 ]
 
@@ -193,10 +203,10 @@ export const FEEL = {
 } as const
 
 export const TUTORIAL = [
-  'Move the pointer to aim the barrel.',
+  'Level 1: drag to aim. The first wave is already coming.',
   'Hold to fire, or leave auto-fire on and steer.',
-  'Drop a drone before it touches a roof.',
-  'The city bar is the skyline. Do not let it empty.',
+  'Pause if you need sound, music, or haptics.',
+  'Clear every wave. Coins buy damage, fire rate, and shield.',
 ] as const
 
 export function hpFor(kind: 'drone' | 'missile' | 'swarm' | 'shard', wave: number): number {

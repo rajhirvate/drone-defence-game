@@ -9,6 +9,7 @@ import {
 } from './config'
 import { LEVELS } from './campaign'
 import { difficultyFromSave, type Difficulty } from './pace'
+import { insertScore, type Career } from './board'
 
 const SAVE_KEY = 'drone-defence.save'
 const LEGACY_BEST = 'drone-defence.best'
@@ -25,9 +26,15 @@ export interface SaveData {
   unlocked: number
   owned: Record<WeaponId, boolean>
   equipped: WeaponId
-  ranks: { rate: number; spread: number; damage: number; emp: number; vital: number }
+  ranks: { rate: number; spread: number; damage: number; emp: number; vital: number; shield: number; duration: number }
   /** Best score per level id. Index 0 is unused. */
   bestLevel: number[]
+  /** Top local scores per level id. Index 0 is unused. */
+  scores: number[][]
+  achievements: string[]
+  stats: Career
+  /** Background music. Sound effects use `muted`. */
+  music: boolean
   bestEndless: number
   dailyBest: Record<string, number>
   muted: boolean
@@ -52,6 +59,14 @@ function emptyStars(): number[] {
   return Array.from({ length: LEVELS.length + 1 }, () => 0)
 }
 
+function emptyScores(): number[][] {
+  return Array.from({ length: LEVELS.length + 1 }, () => [])
+}
+
+function emptyCareer(): Career {
+  return { kills: 0, bosses: 0, runs: 0, bestCombo: 0, coinsEarned: 0, dailies: 0, cleared: 0 }
+}
+
 function emptySave(): SaveData {
   return {
     v: 4,
@@ -60,8 +75,12 @@ function emptySave(): SaveData {
     unlocked: 1,
     owned: { cannon: true, laser: false, missile: false, emp: false },
     equipped: 'cannon',
-    ranks: { rate: 0, spread: 0, damage: 0, emp: 0, vital: 0 },
+    ranks: { rate: 0, spread: 0, damage: 0, emp: 0, vital: 0, shield: 0, duration: 0 },
     bestLevel: emptyStars(),
+    scores: emptyScores(),
+    achievements: [],
+    stats: emptyCareer(),
+    music: true,
     bestEndless: 0,
     dailyBest: {},
     muted: false,
@@ -123,6 +142,8 @@ function sanitize(raw: Partial<SaveData> | null): SaveData {
     base.ranks.damage = clampRank(raw.ranks.damage)
     base.ranks.emp = clampRank(raw.ranks.emp)
     base.ranks.vital = clampRank(raw.ranks.vital)
+    base.ranks.shield = clampRank(raw.ranks.shield)
+    base.ranks.duration = clampRank(raw.ranks.duration)
   }
   if (Array.isArray(raw.bestLevel)) {
     for (let i = 1; i < base.bestLevel.length; i++) {
@@ -130,6 +151,31 @@ function sanitize(raw: Partial<SaveData> | null): SaveData {
       if (typeof n === 'number' && n > 0) base.bestLevel[i] = Math.floor(n)
     }
   }
+  if (Array.isArray(raw.scores)) {
+    for (let i = 1; i < base.scores.length; i++) {
+      const row = raw.scores[i]
+      if (!Array.isArray(row)) continue
+      let next: number[] = []
+      for (const n of row) next = insertScore(next, Number(n))
+      base.scores[i] = next
+    }
+  }
+  for (let i = 1; i < base.scores.length; i++) {
+    if (base.scores[i].length === 0 && base.bestLevel[i] > 0) base.scores[i] = [base.bestLevel[i]]
+  }
+  if (Array.isArray(raw.achievements)) {
+    base.achievements = raw.achievements.filter((id) => typeof id === 'string')
+  }
+  if (raw.stats) {
+    base.stats.kills = Math.max(0, Math.floor(raw.stats.kills ?? 0))
+    base.stats.bosses = Math.max(0, Math.floor(raw.stats.bosses ?? 0))
+    base.stats.runs = Math.max(0, Math.floor(raw.stats.runs ?? 0))
+    base.stats.bestCombo = Math.max(0, Math.floor(raw.stats.bestCombo ?? 0))
+    base.stats.coinsEarned = Math.max(0, Math.floor(raw.stats.coinsEarned ?? 0))
+    base.stats.dailies = Math.max(0, Math.floor(raw.stats.dailies ?? 0))
+    base.stats.cleared = Math.max(0, Math.floor(raw.stats.cleared ?? 0))
+  }
+  base.music = raw.music !== false
   base.bestEndless = Math.max(0, Math.floor(raw.bestEndless ?? 0))
   if (raw.dailyBest && typeof raw.dailyBest === 'object') {
     for (const [key, value] of Object.entries(raw.dailyBest)) {

@@ -878,6 +878,12 @@ body.touch-ui .keys-desktop { display: none !important; }
 
 .mode-ico { color: var(--cyan); display: block; }
 
+.link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
 .text-btn {
   justify-self: start;
   background: transparent;

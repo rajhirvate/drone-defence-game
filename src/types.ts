@@ -1,7 +1,7 @@
 import type { MissileSkinId, TurretSkinId, UpgradeId, WeaponId } from './config'
 import type { Difficulty } from './pace'
 
-export type Phase = 'menu' | 'map' | 'armoury' | 'skins' | 'playing' | 'upgrade' | 'clear' | 'gameover'
+export type Phase = 'menu' | 'map' | 'armoury' | 'skins' | 'badges' | 'stats' | 'playing' | 'upgrade' | 'clear' | 'gameover'
 
 export type GameMode = 'endless' | 'campaign' | 'daily'
 
@@ -204,6 +204,10 @@ export type Command =
   | { type: 'buy-turret'; id: TurretSkinId }
   | { type: 'open-skins' }
   | { type: 'close-skins' }
+  | { type: 'open-badges' }
+  | { type: 'open-stats' }
+  | { type: 'close-meta' }
+  | { type: 'toggle-music' }
   | { type: 'mark-emp-hint' }
   | { type: 'set-difficulty'; id: Difficulty }
 

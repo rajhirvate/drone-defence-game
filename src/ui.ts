@@ -13,7 +13,8 @@ import {
   type UpgradeId,
   type WeaponId,
 } from './config'
-import { todayKey } from './daily'
+import { hashDate, todayKey } from './daily'
+import { ACHIEVEMENTS } from './board'
 import { formatInt } from './math'
 import { renderShareCard, shareCard } from './sharecard'
 import { loadSave } from './storage'
@@ -51,6 +52,8 @@ const UPGRADE_ICON: Record<UpgradeId, string> = {
   damage: ICO.damage,
   emp: ICO.emp,
   vital: ICO.haptic,
+  shield: ICO.armoury,
+  duration: ICO.daily,
 }
 
 function formatDay(iso: string): string {
@@ -119,6 +122,11 @@ export function mountUi(root: HTMLElement): void {
           <span class="toggle-name">Sound</span>
           <span class="toggle-state">On</span>
         </button>
+        <button type="button" class="toggle" id="menu-music" aria-pressed="true">
+          <span class="toggle-ico" aria-hidden="true">${ICO.sound}</span>
+          <span class="toggle-name">Music</span>
+          <span class="toggle-state">On</span>
+        </button>
         <button type="button" class="toggle" id="menu-haptics" aria-pressed="true">
           <span class="toggle-ico" aria-hidden="true">${ICO.haptic}</span>
           <span class="toggle-name">Haptics</span>
@@ -174,7 +182,11 @@ export function mountUi(root: HTMLElement): void {
             <span class="mode-sub">Weapons and skins</span>
           </button>
         </div>
-        <button type="button" class="text-btn" id="howto-open" aria-expanded="false" aria-controls="howto-sheet">How to play</button>
+        <div class="link-row">
+          <button type="button" class="text-btn" id="open-badges">Badges</button>
+          <button type="button" class="text-btn" id="open-stats">Stats</button>
+          <button type="button" class="text-btn" id="howto-open" aria-expanded="false" aria-controls="howto-sheet">How to play</button>
+        </div>
       </div>
       <div class="sheet howto-sheet" id="howto-sheet" hidden role="dialog" aria-label="How to play">
         <div class="panel-head">
@@ -291,6 +303,36 @@ export function mountUi(root: HTMLElement): void {
         </div>
       </div>
     </section>
+    <section class="overlay" id="badges" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <p class="eyebrow">Career</p>
+          <h2>Badges</h2>
+          <p class="sub" id="badge-count"></p>
+        </div>
+        <div class="panel-body">
+          <div class="choices" id="badge-list"></div>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="ghost" id="badges-back">Back</button>
+        </div>
+      </div>
+    </section>
+    <section class="overlay" id="stats" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <p class="eyebrow">Career</p>
+          <h2>Stats</h2>
+          <p class="sub" id="stats-summary"></p>
+        </div>
+        <div class="panel-body">
+          <div class="choices" id="stats-board"></div>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="ghost" id="stats-back">Back</button>
+        </div>
+      </div>
+    </section>
     <div id="skin-toast" class="skin-toast" hidden></div>
     <section class="overlay" id="pause" hidden>
       <div class="panel">
@@ -299,7 +341,21 @@ export function mountUi(root: HTMLElement): void {
           <h2>Paused</h2>
         </div>
         <div class="panel-body">
-          <p class="sub">The sky waits.</p>
+          <p class="sub">The sky waits. Sound, music, and vibration stay with this device.</p>
+          <div class="stack">
+            <button type="button" class="toggle" id="pause-mute" aria-pressed="true">
+              <span class="toggle-name">Sound</span>
+              <span class="toggle-state">On</span>
+            </button>
+            <button type="button" class="toggle" id="pause-music" aria-pressed="true">
+              <span class="toggle-name">Music</span>
+              <span class="toggle-state">On</span>
+            </button>
+            <button type="button" class="toggle" id="pause-haptics" aria-pressed="true">
+              <span class="toggle-name">Vibration</span>
+              <span class="toggle-state">On</span>
+            </button>
+          </div>
         </div>
         <div class="panel-foot">
           <div class="stack">
@@ -431,6 +487,26 @@ export function mountUi(root: HTMLElement): void {
     })
   })
 
+  root.querySelector('#open-badges')?.addEventListener('click', () => {
+    closeSheets()
+    audio.unlock()
+    emitCommand({ type: 'open-badges' })
+  })
+  root.querySelector('#open-stats')?.addEventListener('click', () => {
+    closeSheets()
+    audio.unlock()
+    emitCommand({ type: 'open-stats' })
+  })
+  root.querySelector('#badges-back')?.addEventListener('click', () => emitCommand({ type: 'close-meta' }))
+  root.querySelector('#stats-back')?.addEventListener('click', () => emitCommand({ type: 'close-meta' }))
+  root.querySelector('#menu-music')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'toggle-music' })
+  })
+  root.querySelector('#pause-mute')?.addEventListener('click', () => emitCommand({ type: 'toggle-mute' }))
+  root.querySelector('#pause-music')?.addEventListener('click', () => emitCommand({ type: 'toggle-music' }))
+  root.querySelector('#pause-haptics')?.addEventListener('click', () => emitCommand({ type: 'toggle-haptics' }))
+
   root.querySelector('#open-skins')?.addEventListener('click', () => {
     closeSheets()
     audio.unlock()
@@ -525,6 +601,8 @@ export function mountUi(root: HTMLElement): void {
   const map = root.querySelector<HTMLElement>('#map')
   const shop = root.querySelector<HTMLElement>('#shop')
   const skins = root.querySelector<HTMLElement>('#skins')
+  const badges = root.querySelector<HTMLElement>('#badges')
+  const stats = root.querySelector<HTMLElement>('#stats')
   const skinToast = root.querySelector<HTMLElement>('#skin-toast')
   const clear = root.querySelector<HTMLElement>('#clear')
   const upgrade = root.querySelector<HTMLElement>('#upgrade')
@@ -565,6 +643,8 @@ export function mountUi(root: HTMLElement): void {
       if (map) map.hidden = snapshot.phase !== 'map'
       if (shop) shop.hidden = snapshot.phase !== 'armoury'
       if (skins) skins.hidden = snapshot.phase !== 'skins'
+      if (badges) badges.hidden = snapshot.phase !== 'badges'
+      if (stats) stats.hidden = snapshot.phase !== 'stats'
       if (clear) clear.hidden = snapshot.phase !== 'clear'
       if (upgrade) upgrade.hidden = snapshot.phase !== 'upgrade'
       if (over) over.hidden = snapshot.phase !== 'gameover'
@@ -575,6 +655,8 @@ export function mountUi(root: HTMLElement): void {
       if (snapshot.phase === 'map') fillMap(root)
       if (snapshot.phase === 'armoury') fillShop(root)
       if (snapshot.phase === 'skins') fillSkins(root)
+      if (snapshot.phase === 'badges') fillBadges(root)
+      if (snapshot.phase === 'stats') fillStats(root)
       if (snapshot.phase === 'clear') fillClear(root, snapshot)
       if (snapshot.phase === 'gameover' && snapshot.mode === 'daily') void showDailyCard(root, snapshot)
       if (snapshot.phase === 'menu' && finePointer()) campaignBtn?.focus()
@@ -683,9 +765,16 @@ export function mountUi(root: HTMLElement): void {
       const save = loadSave()
       const date = todayKey()
       const best = save.dailyBest[date]
+      const goals = ['Reach wave 4', 'Hold the roofs', 'Stack a combo']
       dailyDate.textContent = formatDay(date)
-      dailyBest.textContent = best ? `Best ${formatInt(best)}` : 'Best —'
+      dailyBest.textContent = `${goals[hashDate(date) % goals.length]} · ${best ? `Best ${formatInt(best)}` : 'Best —'}`
     }
+    const prefs = loadSave()
+    setMute(root.querySelector('#pause-mute'), prefs.muted, true)
+    paintSwitch(root.querySelector('#menu-music'), prefs.music, 'Music')
+    paintSwitch(root.querySelector('#pause-music'), prefs.music, 'Music')
+    const pauseHaptics = root.querySelector<HTMLButtonElement>('#pause-haptics')
+    if (pauseHaptics) setHaptics(pauseHaptics, prefs.haptics)
     const coinsEl = root.querySelector('#coins')
     if (coinsEl) coinsEl.textContent = formatInt(snapshot.coins)
     if (tutorial) {
@@ -900,13 +989,15 @@ function fillShop(root: HTMLElement): void {
     weapons.appendChild(button)
   }
   ranks.replaceChildren()
-  const rankIds: UpgradeId[] = ['rate', 'spread', 'damage', 'emp', 'vital']
+  const rankIds: UpgradeId[] = ['rate', 'spread', 'damage', 'emp', 'vital', 'shield', 'duration']
   const names = {
     rate: 'Rapid Cycle',
     spread: 'Flak Burst',
     damage: 'Heavy Rounds',
     emp: 'EMP Cycle',
     vital: 'City Plating',
+    shield: 'Shield HP',
+    duration: 'Power-up Time',
   }
   for (const id of rankIds) {
     const rank = save.ranks[id]
@@ -1060,6 +1151,57 @@ function setMute(button: HTMLButtonElement | null, muted: boolean, menu: boolean
   button.setAttribute('aria-pressed', muted ? 'true' : 'false')
   button.classList.toggle('on', muted)
   button.setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound')
+}
+
+function paintSwitch(button: HTMLButtonElement | null, on: boolean, label: string): void {
+  if (!button) return
+  button.setAttribute('aria-pressed', on ? 'true' : 'false')
+  button.classList.toggle('on', on)
+  button.setAttribute('aria-label', `${label} ${on ? 'on' : 'off'}`)
+  const state = button.querySelector('.toggle-state')
+  if (state) state.textContent = on ? 'On' : 'Off'
+}
+
+function fillBadges(root: HTMLElement): void {
+  const save = loadSave()
+  const count = root.querySelector('#badge-count')
+  if (count) count.textContent = `${save.achievements.length} of ${ACHIEVEMENTS.length} earned`
+  const host = root.querySelector('#badge-list')
+  if (!host) return
+  host.replaceChildren()
+  for (const badge of ACHIEVEMENTS) {
+    const owned = save.achievements.includes(badge.id)
+    const card = document.createElement('article')
+    card.className = `choice${owned ? ' on' : ''}`
+    card.innerHTML = `<span class="choice-name">${badge.name}</span><span class="choice-blurb">${badge.blurb}</span><span class="choice-stat">${owned ? 'Earned' : 'Locked'}</span>`
+    host.appendChild(card)
+  }
+}
+
+function fillStats(root: HTMLElement): void {
+  const save = loadSave()
+  const summary = root.querySelector('#stats-summary')
+  if (summary) {
+    const stats = save.stats
+    summary.textContent = `${stats.kills} kills · ${stats.bosses} bosses · ${stats.runs} runs · best combo x${stats.bestCombo}`
+  }
+  const host = root.querySelector('#stats-board')
+  if (!host) return
+  host.replaceChildren()
+  for (let id = 1; id < save.scores.length; id++) {
+    const row = save.scores[id]
+    if (!row || row.length === 0) continue
+    const card = document.createElement('article')
+    card.className = 'choice'
+    card.innerHTML = `<span class="choice-name">Level ${id}</span><span class="choice-stat">${row.map((score) => formatInt(score)).join(' · ')}</span>`
+    host.appendChild(card)
+  }
+  if (!host.childElementCount) {
+    const empty = document.createElement('p')
+    empty.className = 'sub'
+    empty.textContent = 'Clear a level to post a local score.'
+    host.appendChild(empty)
+  }
 }
 
 function setHaptics(button: HTMLButtonElement, on: boolean): void {
