@@ -1,12 +1,24 @@
 import { audio } from './audio'
 import { emitCommand, onView } from './bridge'
 import { LEVELS } from './campaign'
-import { GAME_TITLE, MISSILE_SKINS, SHOP, UPGRADES, rankCost, type MissileSkinId, type UpgradeId, type WeaponId } from './config'
-import { todayKey } from './daily'
+import {
+  GAME_TITLE,
+  MISSILE_SKINS,
+  SHOP,
+  TURRET_SKINS,
+  UPGRADES,
+  rankCost,
+  type MissileSkinId,
+  type TurretSkinId,
+  type UpgradeId,
+  type WeaponId,
+} from './config'
+import { hashDate, todayKey } from './daily'
+import { ACHIEVEMENTS } from './board'
 import { formatInt } from './math'
 import { renderShareCard, shareCard } from './sharecard'
 import { loadSave } from './storage'
-import type { Difficulty } from './pace'
+import { continueLevel, levelById, type Difficulty } from './pace'
 import type { Snapshot } from './types'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -38,6 +50,11 @@ const UPGRADE_ICON: Record<UpgradeId, string> = {
   rate: ICO.rate,
   spread: ICO.spread,
   damage: ICO.damage,
+  emp: ICO.emp,
+  vital: ICO.haptic,
+  shield: ICO.armoury,
+  duration: ICO.daily,
+  starter: ICO.cross,
 }
 
 function formatDay(iso: string): string {
@@ -75,6 +92,7 @@ export function mountUi(root: HTMLElement): void {
           <span class="k">Combo</span>
           <span class="v" id="combo">x1</span>
         </div>
+        <div class="stat" id="gun-stat"><span class="k">Gun</span><span class="v" id="gun">Cannon</span></div>
         <div class="stat" id="coin-stat"><span class="k">Coins</span><span class="v" id="coins">0</span></div>
         <div class="hud-actions">
           <button type="button" class="hud-btn icon" id="auto-btn" aria-pressed="false" aria-label="Auto-fire">${ICO.cross}</button>
@@ -87,8 +105,13 @@ export function mountUi(root: HTMLElement): void {
         <div class="hp-track" aria-hidden="true"><div id="hp-fill"></div></div>
       </div>
       <div class="hp-row" id="boss-row" hidden>
-        <span class="k">Boss</span>
+        <span class="k" id="boss-label">Boss</span>
         <div class="hp-track" aria-hidden="true"><div id="boss-fill"></div></div>
+      </div>
+      <div class="hp-row drive-row">
+        <span class="k">Drive</span>
+        <div class="hp-track" aria-hidden="true"><div id="drive-fill"></div></div>
+        <button type="button" class="drive-btn" id="overdrive-btn" disabled>OD</button>
       </div>
       <div class="weapon-row" id="weapons"></div>
       <p id="weapon-hint" class="weapon-hint" hidden></p>
@@ -104,6 +127,11 @@ export function mountUi(root: HTMLElement): void {
         <button type="button" class="toggle" id="menu-mute" aria-pressed="true">
           <span class="toggle-ico" aria-hidden="true">${ICO.sound}</span>
           <span class="toggle-name">Sound</span>
+          <span class="toggle-state">On</span>
+        </button>
+        <button type="button" class="toggle" id="menu-music" aria-pressed="true">
+          <span class="toggle-ico" aria-hidden="true">${ICO.sound}</span>
+          <span class="toggle-name">Music</span>
           <span class="toggle-state">On</span>
         </button>
         <button type="button" class="toggle" id="menu-haptics" aria-pressed="true">
@@ -140,11 +168,15 @@ export function mountUi(root: HTMLElement): void {
           <span class="play-kicker">Campaign</span>
           <span class="play-label">Play</span>
         </button>
+        <button type="button" class="skins-launch" id="open-skins">
+          <span class="play-kicker">Colours and trails</span>
+          <span class="play-label">Skins</span>
+        </button>
         <div class="mode-row">
           <button type="button" class="mode-card" id="endless">
             <span class="mode-ico" aria-hidden="true">${ICO.endless}</span>
             <span class="mode-name">Endless</span>
-            <span class="mode-sub"><span class="mode-line">Best <strong id="menu-best">0</strong></span></span>
+            <span class="mode-sub" id="endless-sub"><span class="mode-line">Best <strong id="menu-best">0</strong></span></span>
           </button>
           <button type="button" class="mode-card" id="daily">
             <span class="mode-ico" aria-hidden="true">${ICO.daily}</span>
@@ -157,98 +189,214 @@ export function mountUi(root: HTMLElement): void {
             <span class="mode-sub">Weapons and skins</span>
           </button>
         </div>
-        <button type="button" class="text-btn" id="howto-open" aria-expanded="false" aria-controls="howto-sheet">How to play</button>
+        <div class="link-row">
+          <button type="button" class="text-btn" id="continue-run" hidden>Continue</button>
+          <button type="button" class="text-btn" id="open-badges">Badges</button>
+          <button type="button" class="text-btn" id="open-stats">Stats</button>
+          <button type="button" class="text-btn" id="howto-open" aria-expanded="false" aria-controls="howto-sheet">How to play</button>
+        </div>
       </div>
       <div class="sheet howto-sheet" id="howto-sheet" hidden role="dialog" aria-label="How to play">
-        <p class="eyebrow">Field notes</p>
-        <h2>How to play</h2>
-        <ul class="howto">
-          <li>Aim with the pointer. Hold to fire, or switch on auto-fire.</li>
-          <li>Drones weave. Missiles dive. Swarms split.</li>
-          <li>A level sends several waves. It ends when the last wave is clear.</li>
-          <li>Endless mode still offers an upgrade between waves.</li>
-          <li>EMP is a tap. It stuns and damages nearby drones, then cools down.</li>
-        </ul>
-        <p class="keys">Space fires · F auto-fire · M mute</p>
-        <button type="button" class="ghost" id="howto-close">Close</button>
+        <div class="panel-head">
+          <p class="eyebrow">Field notes</p>
+          <h2>How to play</h2>
+        </div>
+        <div class="panel-body">
+          <ul class="howto">
+            <li>Drag to aim. Hold to fire, or leave auto-fire on and just steer.</li>
+            <li>Letters on capsules switch the gun: M machine gun, S spread, L laser, F flame, H homing. The same letter levels it up to MAX.</li>
+            <li>A city hit drops one weapon level. A shield charge prevents that.</li>
+            <li>Timed boosts: rapid fire, extra spread, a shield hit, and slow motion. Tap a drop, or walk the turret into it.</li>
+            <li>Kills fill Overdrive. When the meter is full, tap OD for six seconds of super fire.</li>
+            <li>Jammers sidestep shells. Plates shrug off shells and yield to laser and flame.</li>
+            <li>Every tenth level ends with a named boss. EMP is a tap, then it cools down.</li>
+          </ul>
+          <p class="keys">Space fires · F auto-fire · M mute · tap a capsule to grab it</p>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="ghost" id="howto-close">Back</button>
+        </div>
       </div>
     </section>
     <section class="overlay" id="map" hidden>
       <div class="panel">
-        <p class="eyebrow">Campaign</p>
-        <h2>Level map</h2>
-        <p class="sub" id="map-coins"></p>
-        <div class="diff" role="group" aria-label="Difficulty">
-          <button type="button" data-diff="easy">Easy</button>
-          <button type="button" data-diff="medium">Medium</button>
-          <button type="button" data-diff="hard">Hard</button>
+        <div class="panel-head">
+          <p class="eyebrow">Campaign</p>
+          <h2>Level map</h2>
+          <p class="sub" id="map-coins"></p>
+          <div class="diff" role="group" aria-label="Difficulty">
+            <button type="button" data-diff="easy">Easy</button>
+            <button type="button" data-diff="medium">Medium</button>
+            <button type="button" data-diff="hard">Hard</button>
+          </div>
         </div>
-        <div class="map" id="map-nodes"></div>
-        <div class="stack row">
-          <button type="button" class="ghost" id="map-back">Menu</button>
-          <button type="button" class="primary" id="map-shop">Armoury</button>
+        <div class="panel-body">
+          <div class="map" id="map-nodes"></div>
+        </div>
+        <div class="panel-foot">
+          <div class="stack row">
+            <button type="button" class="ghost" id="map-back">Menu</button>
+            <button type="button" class="primary" id="map-shop">Armoury</button>
+          </div>
         </div>
       </div>
     </section>
     <section class="overlay" id="shop" hidden>
       <div class="panel">
-        <p class="eyebrow">Armoury</p>
-        <h2>Fit the battery</h2>
-        <p class="sub" id="shop-coins"></p>
-        <div class="choices" id="shop-weapons"></div>
-        <div class="choices" id="shop-ranks"></div>
-        <p class="eyebrow skins-label">Missile skins</p>
-        <p class="sub">Colours and trails for homing missiles.</p>
-        <div class="skin-grid" id="shop-skins"></div>
-        <button type="button" class="ghost" id="shop-back">Back</button>
+        <div class="panel-head">
+          <p class="eyebrow">Armoury</p>
+          <h2>Fit the battery</h2>
+          <p class="sub" id="shop-coins"></p>
+        </div>
+        <div class="panel-body">
+          <div class="choices" id="shop-weapons"></div>
+          <div class="choices" id="shop-ranks"></div>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="ghost" id="shop-skins">Skins</button>
+          <button type="button" class="ghost" id="shop-back">Back</button>
+        </div>
       </div>
     </section>
     <section class="overlay" id="clear" hidden>
       <div class="panel">
-        <p class="eyebrow">Level clear</p>
-        <h2 id="clear-title">Sky held</h2>
-        <p class="final" id="clear-stars">★★★</p>
-        <p class="sub" id="clear-detail"></p>
-        <div class="stack">
-          <button type="button" class="primary" id="clear-map">Level map</button>
-          <button type="button" class="ghost" id="clear-shop">Spend coins</button>
+        <div class="panel-head">
+          <p class="eyebrow">Level clear</p>
+          <h2 id="clear-title">Sky held</h2>
+          <p class="final" id="clear-stars">★★★</p>
+          <p class="sub" id="clear-detail"></p>
+        </div>
+        <div class="panel-body"></div>
+        <div class="panel-foot">
+          <div class="stack row">
+            <button type="button" class="primary" id="clear-retry">Retry</button>
+            <button type="button" class="primary" id="clear-next">Next</button>
+          </div>
+          <div class="stack">
+            <button type="button" class="ghost" id="clear-map">Level map</button>
+            <button type="button" class="ghost" id="clear-skins">Skins</button>
+            <button type="button" class="ghost" id="clear-shop">Spend coins</button>
+          </div>
         </div>
       </div>
     </section>
     <section class="overlay" id="upgrade" hidden>
       <div class="panel">
-        <p class="eyebrow">Between waves</p>
-        <h2>Choose an upgrade</h2>
-        <p class="sub" id="upgrade-sub"></p>
-        <div class="choices" id="choices"></div>
+        <div class="panel-head">
+          <p class="eyebrow">Between waves</p>
+          <h2>Choose an upgrade</h2>
+          <p class="sub" id="upgrade-sub"></p>
+        </div>
+        <div class="panel-body">
+          <div class="choices" id="choices"></div>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="ghost" id="upgrade-skins">Skins</button>
+        </div>
       </div>
     </section>
+    <section class="overlay" id="skins" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <p class="eyebrow">Armoury</p>
+          <h2>Skins</h2>
+          <p class="sub" id="skins-coins"></p>
+        </div>
+        <div class="panel-body">
+          <p class="eyebrow skins-label">Missiles</p>
+          <div class="skin-grid" id="skins-grid"></div>
+          <p class="eyebrow skins-label">Turret</p>
+          <div class="skin-grid" id="turret-grid"></div>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="ghost" id="skins-back">Back</button>
+        </div>
+      </div>
+    </section>
+    <section class="overlay" id="badges" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <p class="eyebrow">Career</p>
+          <h2>Badges</h2>
+          <p class="sub" id="badge-count"></p>
+        </div>
+        <div class="panel-body">
+          <div class="choices" id="badge-list"></div>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="ghost" id="badges-back">Back</button>
+        </div>
+      </div>
+    </section>
+    <section class="overlay" id="stats" hidden>
+      <div class="panel">
+        <div class="panel-head">
+          <p class="eyebrow">Career</p>
+          <h2>Stats</h2>
+          <p class="sub" id="stats-summary"></p>
+        </div>
+        <div class="panel-body">
+          <div class="choices" id="stats-board"></div>
+        </div>
+        <div class="panel-foot">
+          <button type="button" class="ghost" id="stats-back">Back</button>
+        </div>
+      </div>
+    </section>
+    <div id="skin-toast" class="skin-toast" hidden></div>
     <section class="overlay" id="pause" hidden>
       <div class="panel">
-        <p class="eyebrow">Battery hold</p>
-        <h2>Paused</h2>
-        <p class="sub">The sky waits.</p>
-        <div class="stack">
-          <button type="button" class="primary" id="resume">Resume</button>
-          <button type="button" class="ghost" id="pause-menu">Menu</button>
+        <div class="panel-head">
+          <p class="eyebrow">Battery hold</p>
+          <h2>Paused</h2>
+        </div>
+        <div class="panel-body">
+          <p class="sub">The sky waits. Sound, music, and vibration stay with this device.</p>
+          <div class="stack">
+            <button type="button" class="toggle" id="pause-mute" aria-pressed="true">
+              <span class="toggle-name">Sound</span>
+              <span class="toggle-state">On</span>
+            </button>
+            <button type="button" class="toggle" id="pause-music" aria-pressed="true">
+              <span class="toggle-name">Music</span>
+              <span class="toggle-state">On</span>
+            </button>
+            <button type="button" class="toggle" id="pause-haptics" aria-pressed="true">
+              <span class="toggle-name">Vibration</span>
+              <span class="toggle-state">On</span>
+            </button>
+          </div>
+        </div>
+        <div class="panel-foot">
+          <div class="stack">
+            <button type="button" class="primary" id="resume">Resume</button>
+            <button type="button" class="ghost" id="pause-retry">Retry</button>
+            <button type="button" class="ghost" id="pause-menu">Menu</button>
+          </div>
         </div>
       </div>
     </section>
     <section class="overlay" id="over" hidden>
       <div class="panel">
-        <p class="eyebrow">Game over</p>
-        <h2>The skyline fell</h2>
-        <p class="final" id="final-score">0</p>
-        <p class="new-best" id="new-best" hidden>New best</p>
-        <p class="sub" id="final-detail"></p>
-        <p class="best-line">Best <strong id="over-best">0</strong></p>
-        <div class="stack">
-          <button type="button" class="primary" id="restart">Restart</button>
-          <button type="button" class="ghost" id="share">Share</button>
+        <div class="panel-head">
+          <p class="eyebrow">Game over</p>
+          <h2>The skyline fell</h2>
+          <p class="final" id="final-score">0</p>
+          <p class="new-best" id="new-best" hidden>New best</p>
+          <p class="sub" id="final-detail"></p>
+          <p class="best-line">Best <strong id="over-best">0</strong></p>
         </div>
-        <img id="card-preview" alt="Daily share card" hidden />
-        <p class="note" id="share-note" aria-live="polite"></p>
-        <input id="share-fallback" hidden readonly aria-label="Share text" />
+        <div class="panel-body">
+          <img id="card-preview" alt="Daily share card" hidden />
+          <p class="note" id="share-note" aria-live="polite"></p>
+          <input id="share-fallback" hidden readonly aria-label="Share text" />
+        </div>
+        <div class="panel-foot">
+          <div class="stack">
+            <button type="button" class="primary" id="restart">Restart</button>
+            <button type="button" class="ghost" id="share">Share</button>
+          </div>
+        </div>
       </div>
     </section>
   `
@@ -325,6 +473,22 @@ export function mountUi(root: HTMLElement): void {
     setSheet(settings, false, gear)
   })
   root.querySelector('#howto-close')?.addEventListener('click', () => setSheet(howto, false, howtoOpen))
+  root.querySelector('#overdrive-btn')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'overdrive' })
+  })
+  root.querySelector('#continue-run')?.addEventListener('click', () => {
+    audio.unlock()
+    closeSheets()
+    const save = loadSave()
+    emitCommand({ type: 'start-level', id: continueLevel(save.unlocked, save.stars) })
+  })
+
+  for (const surface of root.querySelectorAll<HTMLElement>('.overlay, .howto-sheet, .panel-body')) {
+    surface.addEventListener('touchstart', (event) => event.stopPropagation(), { passive: true })
+    surface.addEventListener('touchmove', (event) => event.stopPropagation(), { passive: true })
+    surface.addEventListener('pointerdown', (event) => event.stopPropagation())
+  }
 
   const menu = root.querySelector<HTMLElement>('#menu')
   menu?.addEventListener('click', (event) => {
@@ -341,6 +505,48 @@ export function mountUi(root: HTMLElement): void {
       audio.unlock()
       emitCommand({ type: 'set-difficulty', id })
     })
+  })
+
+  root.querySelector('#open-badges')?.addEventListener('click', () => {
+    closeSheets()
+    audio.unlock()
+    emitCommand({ type: 'open-badges' })
+  })
+  root.querySelector('#open-stats')?.addEventListener('click', () => {
+    closeSheets()
+    audio.unlock()
+    emitCommand({ type: 'open-stats' })
+  })
+  root.querySelector('#badges-back')?.addEventListener('click', () => emitCommand({ type: 'close-meta' }))
+  root.querySelector('#stats-back')?.addEventListener('click', () => emitCommand({ type: 'close-meta' }))
+  root.querySelector('#menu-music')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'toggle-music' })
+  })
+  root.querySelector('#pause-mute')?.addEventListener('click', () => emitCommand({ type: 'toggle-mute' }))
+  root.querySelector('#pause-music')?.addEventListener('click', () => emitCommand({ type: 'toggle-music' }))
+  root.querySelector('#pause-haptics')?.addEventListener('click', () => emitCommand({ type: 'toggle-haptics' }))
+
+  root.querySelector('#open-skins')?.addEventListener('click', () => {
+    closeSheets()
+    audio.unlock()
+    emitCommand({ type: 'open-skins' })
+  })
+  root.querySelector('#shop-skins')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'open-skins' })
+  })
+  root.querySelector('#upgrade-skins')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'open-skins' })
+  })
+  root.querySelector('#clear-skins')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'open-skins' })
+  })
+  root.querySelector('#skins-back')?.addEventListener('click', () => {
+    audio.unlock()
+    emitCommand({ type: 'close-skins' })
   })
 
   campaignBtn?.addEventListener('click', () => {
@@ -377,6 +583,9 @@ export function mountUi(root: HTMLElement): void {
     emitCommand({ type: shopReturn === 'map' ? 'open-map' : 'back-menu' })
   })
   root.querySelector('#clear-map')?.addEventListener('click', () => emitCommand({ type: 'to-map' }))
+  root.querySelector('#clear-retry')?.addEventListener('click', () => emitCommand({ type: 'restart' }))
+  root.querySelector('#clear-next')?.addEventListener('click', () => emitCommand({ type: 'next-level' }))
+  root.querySelector('#pause-retry')?.addEventListener('click', () => emitCommand({ type: 'restart' }))
   root.querySelector('#skip-tutorial')?.addEventListener('click', () => emitCommand({ type: 'skip-tutorial' }))
   menuHaptics?.addEventListener('click', () => emitCommand({ type: 'toggle-haptics' }))
   pauseBtn?.addEventListener('click', () => emitCommand({ type: 'pause' }))
@@ -411,6 +620,10 @@ export function mountUi(root: HTMLElement): void {
   let phase: Snapshot['phase'] | null = null
   const map = root.querySelector<HTMLElement>('#map')
   const shop = root.querySelector<HTMLElement>('#shop')
+  const skins = root.querySelector<HTMLElement>('#skins')
+  const badges = root.querySelector<HTMLElement>('#badges')
+  const stats = root.querySelector<HTMLElement>('#stats')
+  const skinToast = root.querySelector<HTMLElement>('#skin-toast')
   const clear = root.querySelector<HTMLElement>('#clear')
   const upgrade = root.querySelector<HTMLElement>('#upgrade')
   const pause = root.querySelector<HTMLElement>('#pause')
@@ -419,7 +632,8 @@ export function mountUi(root: HTMLElement): void {
   const tutorial = root.querySelector<HTMLElement>('#tutorial')
   const flashEl = root.querySelector<HTMLElement>('#flash')
   const scoreEl = root.querySelector<HTMLElement>('#score')
-  const waveEl = root.querySelector<HTMLElement>('#wave')
+    const waveEl = root.querySelector<HTMLElement>('#wave')
+    const gunEl = root.querySelector<HTMLElement>('#gun')
   const comboEl = root.querySelector<HTMLElement>('#combo')
   const hpFill = root.querySelector<HTMLElement>('#hp-fill')
   const banner = root.querySelector<HTMLElement>('#banner')
@@ -449,6 +663,9 @@ export function mountUi(root: HTMLElement): void {
       if (menu) menu.hidden = snapshot.phase !== 'menu'
       if (map) map.hidden = snapshot.phase !== 'map'
       if (shop) shop.hidden = snapshot.phase !== 'armoury'
+      if (skins) skins.hidden = snapshot.phase !== 'skins'
+      if (badges) badges.hidden = snapshot.phase !== 'badges'
+      if (stats) stats.hidden = snapshot.phase !== 'stats'
       if (clear) clear.hidden = snapshot.phase !== 'clear'
       if (upgrade) upgrade.hidden = snapshot.phase !== 'upgrade'
       if (over) over.hidden = snapshot.phase !== 'gameover'
@@ -458,6 +675,9 @@ export function mountUi(root: HTMLElement): void {
       if (snapshot.phase === 'menu') closeSheets()
       if (snapshot.phase === 'map') fillMap(root)
       if (snapshot.phase === 'armoury') fillShop(root)
+      if (snapshot.phase === 'skins') fillSkins(root)
+      if (snapshot.phase === 'badges') fillBadges(root)
+      if (snapshot.phase === 'stats') fillStats(root)
       if (snapshot.phase === 'clear') fillClear(root, snapshot)
       if (snapshot.phase === 'gameover' && snapshot.mode === 'daily') void showDailyCard(root, snapshot)
       if (snapshot.phase === 'menu' && finePointer()) campaignBtn?.focus()
@@ -493,6 +713,7 @@ export function mountUi(root: HTMLElement): void {
       waveEl.textContent = waveText
       seen.wave = waveText
     }
+    if (gunEl && gunEl.textContent !== snapshot.gun) gunEl.textContent = snapshot.gun
     const comboText = `x${snapshot.mult}`
     if (seen.combo !== comboText && comboEl) {
       comboEl.textContent = comboText
@@ -506,8 +727,24 @@ export function mountUi(root: HTMLElement): void {
     if (bossRow && bossFill) {
       const showBoss = snapshot.phase === 'playing' && snapshot.bossMax > 0
       bossRow.hidden = !showBoss
-      if (showBoss) bossFill.style.transform = `scaleX(${Math.max(0, snapshot.bossHp / snapshot.bossMax)})`
+      if (showBoss) {
+        bossFill.style.transform = `scaleX(${Math.max(0, snapshot.bossHp / snapshot.bossMax)})`
+        const label = root.querySelector('#boss-label')
+        if (label) label.textContent = snapshot.bossName || 'Boss'
+      }
     }
+    const driveFill = root.querySelector<HTMLElement>('#drive-fill')
+    const driveBtn = root.querySelector<HTMLButtonElement>('#overdrive-btn')
+    if (driveFill) driveFill.style.transform = `scaleX(${Math.max(0, Math.min(1, snapshot.drive))})`
+    if (driveBtn) {
+      const hot = snapshot.driveLeft > 0
+      driveBtn.disabled = !snapshot.driveReady
+      driveBtn.classList.toggle('ready', snapshot.driveReady)
+      driveBtn.classList.toggle('hot', hot)
+      driveBtn.textContent = hot ? snapshot.driveLeft.toFixed(1) : 'OD'
+      driveBtn.setAttribute('aria-label', hot ? 'Overdrive active' : snapshot.driveReady ? 'Fire overdrive' : 'Overdrive charging')
+    }
+    if (snapshot.phase === 'menu') paintContinue(root)
     paintDifficulty(root, snapshot.difficulty)
     if (seen.hp !== hp && hpFill) {
       hpFill.style.transform = `scaleX(${hp})`
@@ -519,6 +756,7 @@ export function mountUi(root: HTMLElement): void {
     if (seen.banner !== snapshot.banner && banner) {
       banner.textContent = snapshot.banner
       banner.classList.toggle('show', snapshot.banner.length > 0)
+      banner.classList.toggle('toast', /^WAVE\s+\d/i.test(snapshot.banner))
       seen.banner = snapshot.banner
     }
     const showBest = snapshot.newBest && snapshot.score > 0 && snapshot.phase === 'playing'
@@ -549,15 +787,32 @@ export function mountUi(root: HTMLElement): void {
     }
     const menuBest = root.querySelector('#menu-best')
     if (menuBest && snapshot.phase === 'menu') menuBest.textContent = formatInt(snapshot.best)
+    const endlessBtn = root.querySelector<HTMLButtonElement>('#endless')
+    const endlessSub = root.querySelector('#endless-sub')
+    if (endlessBtn && endlessSub && snapshot.phase === 'menu') {
+      const locked = loadSave().unlocked < 20
+      endlessBtn.disabled = locked
+      if (locked) endlessSub.textContent = 'Unlocks at level 20'
+      else if (!endlessSub.querySelector('#menu-best')) {
+        endlessSub.innerHTML = `Best <strong id="menu-best">${formatInt(snapshot.best)}</strong>`
+      }
+    }
     const dailyDate = root.querySelector('#menu-daily-date')
     const dailyBest = root.querySelector('#menu-daily-best')
     if (dailyDate && dailyBest && snapshot.phase === 'menu') {
       const save = loadSave()
       const date = todayKey()
       const best = save.dailyBest[date]
+      const goals = ['Reach wave 4', 'Hold the roofs', 'Stack a combo']
       dailyDate.textContent = formatDay(date)
-      dailyBest.textContent = best ? `Best ${formatInt(best)}` : 'Best —'
+      dailyBest.textContent = `${goals[hashDate(date) % goals.length]} · ${best ? `Best ${formatInt(best)}` : 'Best —'}`
     }
+    const prefs = loadSave()
+    setMute(root.querySelector('#pause-mute'), prefs.muted, true)
+    paintSwitch(root.querySelector('#menu-music'), prefs.music, 'Music')
+    paintSwitch(root.querySelector('#pause-music'), prefs.music, 'Music')
+    const pauseHaptics = root.querySelector<HTMLButtonElement>('#pause-haptics')
+    if (pauseHaptics) setHaptics(pauseHaptics, prefs.haptics)
     const coinsEl = root.querySelector('#coins')
     if (coinsEl) coinsEl.textContent = formatInt(snapshot.coins)
     if (tutorial) {
@@ -566,6 +821,18 @@ export function mountUi(root: HTMLElement): void {
       if (text) text.textContent = snapshot.tutorial
     }
     if (menuHaptics) setHaptics(menuHaptics, loadSave().haptics)
+    if (skinToast) {
+      const show = snapshot.skinToast.length > 0
+      skinToast.hidden = !show
+      if (show) skinToast.textContent = snapshot.skinToast
+    }
+    if (snapshot.phase === 'skins') {
+      const skinKey = `${snapshot.coins}:${snapshot.missileSkin}:${snapshot.turretSkin}:${snapshot.ownedSkinKey}:${snapshot.ownedTurretKey}`
+      if (skinKey !== root.dataset.skins) {
+        root.dataset.skins = skinKey
+        fillSkins(root)
+      }
+    }
     if (snapshot.phase === 'armoury') {
       const shopKey = `${snapshot.coins}:${snapshot.weapon}:${snapshot.ownedLaser}:${snapshot.ownedMissile}:${snapshot.ownedEmp}:${snapshot.missileSkin}:${snapshot.ownedSkinKey}`
       if (shopKey !== root.dataset.shop) {
@@ -720,15 +987,33 @@ function fillMap(root: HTMLElement): void {
     if (locked) button.classList.add('locked')
     if (level.boss !== 'none') button.classList.add('boss')
     const stars = save.stars[level.id] ?? 0
+    const next = continueLevel(save.unlocked, save.stars)
     button.disabled = locked
-    const starText = locked ? 'Locked' : '★★★'.slice(0, stars) + '☆☆☆'.slice(stars)
-    button.innerHTML = `<span class="k">${level.id}</span><strong>${level.name}</strong><span class="stars">${starText}</span>`
+    if (!locked && level.id === next) button.classList.add('next')
+    const starText = locked
+      ? '<span class="lock">Locked</span>'
+      : `${'<span class="on">★</span>'.repeat(stars)}${'<span class="off">☆</span>'.repeat(3 - stars)}`
+    const best = save.bestLevel[level.id] ?? 0
+    const bestText = best > 0 ? `<span class="best">${formatInt(best)}</span>` : ''
+    button.innerHTML = `<span class="k">${level.id}</span><strong>${level.name}</strong><span class="stars">${starText}</span>${bestText}`
     button.addEventListener('click', () => {
       audio.unlock()
       emitCommand({ type: 'start-level', id: level.id })
     })
     host.appendChild(button)
   }
+}
+
+function paintContinue(root: HTMLElement): void {
+  const button = root.querySelector<HTMLButtonElement>('#continue-run')
+  if (!button) return
+  const save = loadSave()
+  const id = continueLevel(save.unlocked, save.stars)
+  const show = save.unlocked > 1 || (save.stars[1] ?? 0) > 0
+  button.hidden = !show
+  if (!show) return
+  const level = levelById(id)
+  button.textContent = `Continue · ${level.id} ${level.name}`
 }
 
 function fillShop(root: HTMLElement): void {
@@ -758,24 +1043,42 @@ function fillShop(root: HTMLElement): void {
     weapons.appendChild(button)
   }
   ranks.replaceChildren()
-  const rankIds: UpgradeId[] = ['rate', 'spread', 'damage']
-  const names = { rate: 'Rapid Cycle', spread: 'Flak Burst', damage: 'Heavy Rounds' }
+  const rankIds: UpgradeId[] = ['rate', 'spread', 'damage', 'emp', 'vital', 'shield', 'duration', 'starter']
+  const names = {
+    rate: 'Rapid Cycle',
+    spread: 'Flak Burst',
+    damage: 'Heavy Rounds',
+    emp: 'EMP Cycle',
+    vital: 'City Plating',
+    shield: 'Shield HP',
+    duration: 'Power-up Time',
+    starter: 'Open at Lv2',
+  }
   for (const id of rankIds) {
     const rank = save.ranks[id]
+    const cap = id === 'starter' ? 1 : SHOP.maxRank
+    const cost = id === 'starter' ? 60 : rankCost(rank)
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'choice'
-    button.disabled = rank >= SHOP.maxRank
-    button.innerHTML = `<span class="choice-name">${UPGRADE_ICON[id]}${names[id]}</span><span class="choice-stat">${rank >= SHOP.maxRank ? 'Max' : `Lv ${rank} · ${rankCost(rank)} coins`}</span>`
+    button.disabled = rank >= cap
+    button.innerHTML = `<span class="choice-name">${UPGRADE_ICON[id]}${names[id]}</span><span class="choice-stat">${rank >= cap ? 'Owned' : `Lv ${rank} · ${cost} coins`}</span>`
     button.addEventListener('click', () => {
       audio.unlock()
       emitCommand({ type: 'buy-rank', id })
     })
     ranks.appendChild(button)
   }
-  const skins = root.querySelector('#shop-skins')
-  if (!skins) return
-  skins.replaceChildren()
+}
+
+function fillSkins(root: HTMLElement): void {
+  const save = loadSave()
+  const coins = root.querySelector('#skins-coins')
+  if (coins) coins.textContent = `${formatInt(save.coins)} coins · missile ${save.missileSkin} · turret ${save.turretSkin}`
+  const missiles = root.querySelector('#skins-grid')
+  const turrets = root.querySelector('#turret-grid')
+  if (!missiles || !turrets) return
+  missiles.replaceChildren()
   for (const skin of MISSILE_SKINS) {
     const owned = save.ownedSkins[skin.id]
     const equipped = save.missileSkin === skin.id
@@ -783,6 +1086,7 @@ function fillShop(root: HTMLElement): void {
     button.type = 'button'
     button.className = 'skin-card'
     if (equipped) button.classList.add('on')
+    if (!owned) button.classList.add('locked')
     const badge = equipped ? 'Equipped' : owned ? 'Unlocked' : 'Locked'
     const action = equipped ? 'Equipped' : owned ? 'Equip' : `${skin.cost} coins`
     button.disabled = !owned && skin.cost > save.coins
@@ -791,7 +1095,26 @@ function fillShop(root: HTMLElement): void {
       audio.unlock()
       emitCommand({ type: 'buy-skin', id: skin.id })
     })
-    skins.appendChild(button)
+    missiles.appendChild(button)
+  }
+  turrets.replaceChildren()
+  for (const skin of TURRET_SKINS) {
+    const owned = save.ownedTurrets[skin.id]
+    const equipped = save.turretSkin === skin.id
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'skin-card'
+    if (equipped) button.classList.add('on')
+    if (!owned) button.classList.add('locked')
+    const badge = equipped ? 'Equipped' : owned ? 'Unlocked' : 'Locked'
+    const action = equipped ? 'Equipped' : owned ? 'Equip' : `${skin.cost} coins`
+    button.disabled = !owned && skin.cost > save.coins
+    button.innerHTML = `<span class="badge">${badge}</span>${turretPreview(skin.id)}<span class="choice-name">${skin.name}</span><span class="choice-blurb">${skin.blurb}</span><span class="choice-stat">${action}</span>`
+    button.addEventListener('click', () => {
+      audio.unlock()
+      emitCommand({ type: 'buy-turret', id: skin.id })
+    })
+    turrets.appendChild(button)
   }
 }
 
@@ -802,10 +1125,27 @@ function skinPreview(id: MissileSkinId): string {
   if (id === 'needle') {
     return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><path d="M4 18h92" stroke="#f7fbff" stroke-width="2"/><path d="M96 18l20-4v8z" fill="#9af6ff"/></svg>'
   }
+  if (id === 'halo') {
+    return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><circle cx="78" cy="18" r="10" fill="none" stroke="#ffb15a" stroke-width="2"/><circle cx="96" cy="18" r="5" fill="#9af6ff"/></svg>'
+  }
+  if (id === 'viper') {
+    return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><path d="M8 14h70M8 22h70" stroke="#b6f27a" stroke-width="2"/><path d="M78 18l28-10v20z" fill="#d6ff9a"/></svg>'
+  }
   if (id === 'comet') {
     return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><circle cx="28" cy="18" r="3" fill="#ffb15a"/><circle cx="48" cy="18" r="4" fill="#e4d8ff"/><circle cx="70" cy="18" r="5" fill="#c9a6ff"/><circle cx="96" cy="18" r="8" fill="#6a4cff"/><circle cx="99" cy="16" r="3" fill="#f4f1ea"/></svg>'
   }
+  if (id === 'lantern') {
+    return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><circle cx="70" cy="18" r="8" fill="#ff8a3d" opacity="0.45"/><circle cx="96" cy="18" r="8" fill="#ffe1a8"/><circle cx="96" cy="18" r="3" fill="#fff6d2"/></svg>'
+  }
+  if (id === 'prism') {
+    return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><path d="M70 18l10-8 10 8-10 8z" fill="#9af6ff"/><path d="M88 18l12-9 12 9-12 9z" fill="#f7fbff"/><path d="M78 28l8-6 8 6-8 6z" fill="#ffb15a"/></svg>'
+  }
   return '<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><path d="M8 18h64" stroke="#9af6ff" stroke-width="3" stroke-linecap="round"/><path d="M74 18l28-9 6 9-6 9z" fill="#f4f1ea"/></svg>'
+}
+
+function turretPreview(id: TurretSkinId): string {
+  const color = id === 'amber' ? '#ffb15a' : id === 'cyan' ? '#9af6ff' : id === 'violet' ? '#c9a6ff' : '#9aa6b8'
+  return `<svg class="skin-svg" viewBox="0 0 120 36" aria-hidden="true"><rect x="28" y="22" width="64" height="8" rx="2" fill="${color}" opacity="0.45"/><rect x="56" y="8" width="8" height="18" fill="${color}"/></svg>`
 }
 
 function fillClear(root: HTMLElement, snapshot: Snapshot): void {
@@ -868,6 +1208,57 @@ function setMute(button: HTMLButtonElement | null, muted: boolean, menu: boolean
   button.setAttribute('aria-pressed', muted ? 'true' : 'false')
   button.classList.toggle('on', muted)
   button.setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound')
+}
+
+function paintSwitch(button: HTMLButtonElement | null, on: boolean, label: string): void {
+  if (!button) return
+  button.setAttribute('aria-pressed', on ? 'true' : 'false')
+  button.classList.toggle('on', on)
+  button.setAttribute('aria-label', `${label} ${on ? 'on' : 'off'}`)
+  const state = button.querySelector('.toggle-state')
+  if (state) state.textContent = on ? 'On' : 'Off'
+}
+
+function fillBadges(root: HTMLElement): void {
+  const save = loadSave()
+  const count = root.querySelector('#badge-count')
+  if (count) count.textContent = `${save.achievements.length} of ${ACHIEVEMENTS.length} earned`
+  const host = root.querySelector('#badge-list')
+  if (!host) return
+  host.replaceChildren()
+  for (const badge of ACHIEVEMENTS) {
+    const owned = save.achievements.includes(badge.id)
+    const card = document.createElement('article')
+    card.className = `choice${owned ? ' on' : ''}`
+    card.innerHTML = `<span class="choice-name">${badge.name}</span><span class="choice-blurb">${badge.blurb}</span><span class="choice-stat">${owned ? 'Earned' : 'Locked'}</span>`
+    host.appendChild(card)
+  }
+}
+
+function fillStats(root: HTMLElement): void {
+  const save = loadSave()
+  const summary = root.querySelector('#stats-summary')
+  if (summary) {
+    const stats = save.stats
+    summary.textContent = `${stats.kills} kills · ${stats.bosses} bosses · ${stats.runs} runs · best combo x${stats.bestCombo}`
+  }
+  const host = root.querySelector('#stats-board')
+  if (!host) return
+  host.replaceChildren()
+  for (let id = 1; id < save.scores.length; id++) {
+    const row = save.scores[id]
+    if (!row || row.length === 0) continue
+    const card = document.createElement('article')
+    card.className = 'choice'
+    card.innerHTML = `<span class="choice-name">Level ${id}</span><span class="choice-stat">${row.map((score) => formatInt(score)).join(' · ')}</span>`
+    host.appendChild(card)
+  }
+  if (!host.childElementCount) {
+    const empty = document.createElement('p')
+    empty.className = 'sub'
+    empty.textContent = 'Clear a level to post a local score.'
+    host.appendChild(empty)
+  }
 }
 
 function setHaptics(button: HTMLButtonElement, on: boolean): void {

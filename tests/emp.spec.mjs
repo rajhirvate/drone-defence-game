@@ -58,6 +58,9 @@ test.describe('mobile EMP', () => {
     expect(migrated.equipped).toBe('emp')
     expect(migrated.ranks.rate).toBe(2)
     expect(migrated.missileSkin).toBe('standard')
+    expect(migrated.turretSkin).toBe('navy')
+    expect(migrated.ownedSkins.halo).toBe(false)
+    expect(migrated.ownedTurrets.amber).toBe(false)
 
     await startLevel(page)
     await pump(page, 400)
@@ -169,16 +172,17 @@ test('cannon auto-fire, laser tap, and missile tap still shoot', async ({ page }
 test('all four missile skins buy, equip, and render', async ({ page }) => {
   await page.setViewportSize({ width: 412, height: 915 })
   await boot(page, { ...mainSave, coins: 500, equipped: 'missile', autoFire: true }, 412, 915)
-  await page.locator('#armoury').click()
-  await page.locator('#shop:not([hidden])').waitFor()
+  await page.locator('#open-skins').click()
+  await page.locator('#skins:not([hidden])').waitFor()
+  await expect(page.locator('#skins-grid .skin-card')).toHaveCount(8)
   await page.screenshot({ path: '/opt/cursor/artifacts/after-skins-picker.png' })
   for (const name of ['Standard', 'Flare', 'Needle', 'Comet']) {
-    await page.locator('#shop-skins button', { hasText: name }).click()
+    await page.locator('#skins-grid button', { hasText: name }).click()
     await pump(page, 100)
     const skin = await page.evaluate(() => JSON.parse(localStorage.getItem('drone-defence.save')).missileSkin)
     expect(skin).toBe(name.toLowerCase())
   }
-  await page.locator('#shop-back').click()
+  await page.locator('#skins-back').click()
   await startLevel(page)
   await pump(page, 1500)
   await page.screenshot({ path: '/opt/cursor/artifacts/after-skin-inflight.png' })

@@ -1,6 +1,15 @@
-import { isMissileSkin, type MissileSkinId, type WeaponId } from './config'
+import {
+  MISSILE_SKINS,
+  TURRET_SKINS,
+  isMissileSkin,
+  isTurretSkin,
+  type MissileSkinId,
+  type TurretSkinId,
+  type WeaponId,
+} from './config'
 import { LEVELS } from './campaign'
 import { difficultyFromSave, type Difficulty } from './pace'
+import { insertScore, type Career } from './board'
 
 const SAVE_KEY = 'drone-defence.save'
 const LEGACY_BEST = 'drone-defence.best'
@@ -17,7 +26,24 @@ export interface SaveData {
   unlocked: number
   owned: Record<WeaponId, boolean>
   equipped: WeaponId
-  ranks: { rate: number; spread: number; damage: number }
+  ranks: {
+    rate: number
+    spread: number
+    damage: number
+    emp: number
+    vital: number
+    shield: number
+    duration: number
+    starter: number
+  }
+  /** Best score per level id. Index 0 is unused. */
+  bestLevel: number[]
+  /** Top local scores per level id. Index 0 is unused. */
+  scores: number[][]
+  achievements: string[]
+  stats: Career
+  /** Background music. Sound effects use `muted`. */
+  music: boolean
   bestEndless: number
   dailyBest: Record<string, number>
   muted: boolean
@@ -26,12 +52,28 @@ export interface SaveData {
   tutorialSeen: boolean
   missileSkin: MissileSkinId
   ownedSkins: Record<MissileSkinId, boolean>
+  turretSkin: TurretSkinId
+  ownedTurrets: Record<TurretSkinId, boolean>
   empHintSeen: boolean
   difficulty: Difficulty
 }
 
+function emptyOwned<T extends string>(list: readonly { id: T; cost: number }[]): Record<T, boolean> {
+  const owned = {} as Record<T, boolean>
+  for (const item of list) owned[item.id] = item.cost === 0
+  return owned
+}
+
 function emptyStars(): number[] {
   return Array.from({ length: LEVELS.length + 1 }, () => 0)
+}
+
+function emptyScores(): number[][] {
+  return Array.from({ length: LEVELS.length + 1 }, () => [])
+}
+
+function emptyCareer(): Career {
+  return { kills: 0, bosses: 0, runs: 0, bestCombo: 0, coinsEarned: 0, dailies: 0, cleared: 0 }
 }
 
 function emptySave(): SaveData {
@@ -42,7 +84,12 @@ function emptySave(): SaveData {
     unlocked: 1,
     owned: { cannon: true, laser: false, missile: false, emp: false },
     equipped: 'cannon',
-    ranks: { rate: 0, spread: 0, damage: 0 },
+    ranks: { rate: 0, spread: 0, damage: 0, emp: 0, vital: 0, shield: 0, duration: 0, starter: 0 },
+    bestLevel: emptyStars(),
+    scores: emptyScores(),
+    achievements: [],
+    stats: emptyCareer(),
+    music: true,
     bestEndless: 0,
     dailyBest: {},
     muted: false,
@@ -50,7 +97,9 @@ function emptySave(): SaveData {
     haptics: true,
     tutorialSeen: false,
     missileSkin: 'standard',
-    ownedSkins: { standard: true, flare: false, needle: false, comet: false },
+    ownedSkins: emptyOwned(MISSILE_SKINS),
+    turretSkin: 'navy',
+    ownedTurrets: emptyOwned(TURRET_SKINS),
     empHintSeen: false,
     difficulty: 'medium',
   }
@@ -100,7 +149,43 @@ function sanitize(raw: Partial<SaveData> | null): SaveData {
     base.ranks.rate = clampRank(raw.ranks.rate)
     base.ranks.spread = clampRank(raw.ranks.spread)
     base.ranks.damage = clampRank(raw.ranks.damage)
+    base.ranks.emp = clampRank(raw.ranks.emp)
+    base.ranks.vital = clampRank(raw.ranks.vital)
+    base.ranks.shield = clampRank(raw.ranks.shield)
+    base.ranks.duration = clampRank(raw.ranks.duration)
+    base.ranks.starter = clampRank(raw.ranks.starter) > 0 ? 1 : 0
   }
+  if (Array.isArray(raw.bestLevel)) {
+    for (let i = 1; i < base.bestLevel.length; i++) {
+      const n = raw.bestLevel[i]
+      if (typeof n === 'number' && n > 0) base.bestLevel[i] = Math.floor(n)
+    }
+  }
+  if (Array.isArray(raw.scores)) {
+    for (let i = 1; i < base.scores.length; i++) {
+      const row = raw.scores[i]
+      if (!Array.isArray(row)) continue
+      let next: number[] = []
+      for (const n of row) next = insertScore(next, Number(n))
+      base.scores[i] = next
+    }
+  }
+  for (let i = 1; i < base.scores.length; i++) {
+    if (base.scores[i].length === 0 && base.bestLevel[i] > 0) base.scores[i] = [base.bestLevel[i]]
+  }
+  if (Array.isArray(raw.achievements)) {
+    base.achievements = raw.achievements.filter((id) => typeof id === 'string')
+  }
+  if (raw.stats) {
+    base.stats.kills = Math.max(0, Math.floor(raw.stats.kills ?? 0))
+    base.stats.bosses = Math.max(0, Math.floor(raw.stats.bosses ?? 0))
+    base.stats.runs = Math.max(0, Math.floor(raw.stats.runs ?? 0))
+    base.stats.bestCombo = Math.max(0, Math.floor(raw.stats.bestCombo ?? 0))
+    base.stats.coinsEarned = Math.max(0, Math.floor(raw.stats.coinsEarned ?? 0))
+    base.stats.dailies = Math.max(0, Math.floor(raw.stats.dailies ?? 0))
+    base.stats.cleared = Math.max(0, Math.floor(raw.stats.cleared ?? 0))
+  }
+  base.music = raw.music !== false
   base.bestEndless = Math.max(0, Math.floor(raw.bestEndless ?? 0))
   if (raw.dailyBest && typeof raw.dailyBest === 'object') {
     for (const [key, value] of Object.entries(raw.dailyBest)) {
@@ -116,12 +201,23 @@ function sanitize(raw: Partial<SaveData> | null): SaveData {
   base.empHintSeen = raw.empHintSeen === true
   const ownedSkins = raw.ownedSkins
   if (ownedSkins) {
-    base.ownedSkins.flare = ownedSkins.flare === true
-    base.ownedSkins.needle = ownedSkins.needle === true
-    base.ownedSkins.comet = ownedSkins.comet === true
+    for (const skin of MISSILE_SKINS) {
+      if (skin.cost === 0) continue
+      base.ownedSkins[skin.id] = ownedSkins[skin.id] === true
+    }
   }
   if (typeof raw.missileSkin === 'string' && isMissileSkin(raw.missileSkin) && base.ownedSkins[raw.missileSkin]) {
     base.missileSkin = raw.missileSkin
+  }
+  const ownedTurrets = raw.ownedTurrets
+  if (ownedTurrets) {
+    for (const skin of TURRET_SKINS) {
+      if (skin.cost === 0) continue
+      base.ownedTurrets[skin.id] = ownedTurrets[skin.id] === true
+    }
+  }
+  if (typeof raw.turretSkin === 'string' && isTurretSkin(raw.turretSkin) && base.ownedTurrets[raw.turretSkin]) {
+    base.turretSkin = raw.turretSkin
   }
   base.difficulty = difficultyFromSave(raw.difficulty)
   return base

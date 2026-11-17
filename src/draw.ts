@@ -2,7 +2,7 @@ import Phaser from 'phaser'
 import { mixHex } from './math'
 import { type Building, type LitWindow } from './skyline'
 import type { Bullet, Enemy, Fire, Marker, Particle, Star } from './types'
-import type { MissileSkinId } from './config'
+import type { MissileSkinId, TurretSkinId } from './config'
 
 const hexPts: { x: number; y: number }[] = [
   { x: 0, y: 0 },
@@ -56,6 +56,9 @@ export interface ActionFrame {
   reduceMotion: boolean
   beams: readonly Beam[]
   empPulses: readonly EmpPulseDraw[]
+  turretSkin: TurretSkinId
+  drops: readonly { x: number; y: number; kind: string; letter?: string; life: number; max: number }[]
+  muzzleKind: string
 }
 
 export interface Beam {
@@ -203,6 +206,11 @@ export function paintAction(g: Phaser.GameObjects.Graphics, f: ActionFrame): voi
   }
 
   drawTurret(g, f)
+  for (let i = 0; i < f.drops.length; i++) {
+    const drop = f.drops[i]
+    if (drop.max > 0 && drop.life / drop.max < 0.3 && Math.sin(drop.life * 22) < 0) continue
+    drawDrop(g, drop, f.unit)
+  }
   if (f.laserOn) {
     g.lineStyle(Math.max(3, f.unit * 4), 0xff4d6a, 0.35)
     g.beginPath()
@@ -285,7 +293,7 @@ function drawSkyBeams(g: Phaser.GameObjects.Graphics, f: ActionFrame): void {
 function drawShell(g: Phaser.GameObjects.Graphics, b: Bullet, unit: number): void {
   const speed = Math.hypot(b.vx, b.vy) || 1
   const trail = Math.max(18, unit * 48)
-  g.lineStyle(Math.max(2.5, unit * 3.2), b.flak ? 0xffe1a3 : 0xb8fbff, 0.95)
+  g.lineStyle(Math.max(2.5, unit * 3.2), b.heat ? 0xff6a2a : b.flak ? 0xffe1a3 : 0xb8fbff, 0.95)
   g.beginPath()
   g.moveTo(b.x - (b.vx / speed) * trail, b.y - (b.vy / speed) * trail)
   g.lineTo(b.x, b.y)
@@ -328,6 +336,64 @@ function drawPlayerMissile(g: Phaser.GameObjects.Graphics, b: Bullet, unit: numb
     quad(g, b.x - ux * unit * 8, b.y - uy * unit * 8, unit * 28, Math.max(2, unit * 2.2), ang)
     g.fillStyle(0x9af6ff, 1)
     diamond(g, b.x + ux * unit * 6, b.y + uy * unit * 6, Math.max(3, unit * 3), ang)
+    return
+  }
+  if (skin === 'halo') {
+    g.lineStyle(Math.max(2, unit * 2.2), 0xffb15a, 0.7)
+    g.strokeCircle(b.x - ux * unit * 16, b.y - uy * unit * 16, Math.max(5, unit * 7))
+    g.lineStyle(Math.max(2, unit * 2.4), 0x9af6ff, 0.9)
+    g.beginPath()
+    g.moveTo(b.x - ux * unit * 42, b.y - uy * unit * 42)
+    g.lineTo(b.x, b.y)
+    g.strokePath()
+    g.fillStyle(0x9af6ff, 1)
+    g.fillCircle(b.x, b.y, Math.max(3.5, unit * 4))
+    g.fillStyle(0xfff6d2, 1)
+    g.fillCircle(b.x, b.y, Math.max(1.6, unit * 1.8))
+    return
+  }
+  if (skin === 'viper') {
+    const px = -uy
+    const py = ux
+    g.lineStyle(Math.max(1.6, unit * 1.8), 0xb6f27a, 0.9)
+    g.beginPath()
+    g.moveTo(b.x - ux * unit * 70 + px * unit * 3, b.y - uy * unit * 70 + py * unit * 3)
+    g.lineTo(b.x, b.y)
+    g.moveTo(b.x - ux * unit * 70 - px * unit * 3, b.y - uy * unit * 70 - py * unit * 3)
+    g.lineTo(b.x, b.y)
+    g.strokePath()
+    g.fillStyle(0xd6ff9a, 1)
+    diamond(g, b.x, b.y, Math.max(5, unit * 6), ang)
+    g.fillStyle(0xffb15a, 1)
+    diamond(g, b.x - ux * unit * 6, b.y - uy * unit * 6, Math.max(2, unit * 2.4), ang)
+    return
+  }
+  if (skin === 'lantern') {
+    g.lineStyle(Math.max(4, unit * 5), 0xff8a3d, 0.35)
+    g.beginPath()
+    g.moveTo(b.x - ux * unit * 36, b.y - uy * unit * 36)
+    g.lineTo(b.x, b.y)
+    g.strokePath()
+    g.fillStyle(0xffb15a, 0.35)
+    g.fillCircle(b.x, b.y, Math.max(8, unit * 10))
+    g.fillStyle(0xffe1a8, 1)
+    g.fillCircle(b.x, b.y, Math.max(4, unit * 5))
+    g.fillStyle(0xfff6d2, 1)
+    g.fillCircle(b.x, b.y, Math.max(2, unit * 2.2))
+    return
+  }
+  if (skin === 'prism') {
+    g.lineStyle(Math.max(1.5, unit * 1.6), 0x9af6ff, 0.8)
+    g.beginPath()
+    g.moveTo(b.x - ux * unit * 28, b.y - uy * unit * 28)
+    g.lineTo(b.x, b.y)
+    g.strokePath()
+    g.fillStyle(0xf7fbff, 1)
+    diamond(g, b.x, b.y, Math.max(5, unit * 6), ang)
+    g.fillStyle(0x9af6ff, 1)
+    diamond(g, b.x - ux * unit * 8 + uy * unit * 4, b.y - uy * unit * 8 - ux * unit * 4, Math.max(2.4, unit * 2.6), ang)
+    g.fillStyle(0xffb15a, 1)
+    diamond(g, b.x - ux * unit * 8 - uy * unit * 4, b.y - uy * unit * 8 + ux * unit * 4, Math.max(2.4, unit * 2.6), ang)
     return
   }
   if (skin === 'comet') {
@@ -393,10 +459,29 @@ function drawEnemy(g: Phaser.GameObjects.Graphics, e: Enemy, time: number, unit:
   const flash = e.flash > 0
   if (e.kind === 'carrier') drawCarrier(g, e, time, flash, unit)
   else if (e.kind === 'armour') drawArmour(g, e, time, flash)
-  else if (e.kind === 'missile') drawMissile(g, e, time, flash)
-  else if (e.kind === 'swarm') drawSwarm(g, e, time, flash, unit)
+  else if (e.kind === 'missile' || e.kind === 'kamikaze') drawMissile(g, e, time, flash)
+  else if (e.kind === 'swarm' || e.kind === 'splitter') drawSwarm(g, e, time, flash, unit)
   else if (e.kind === 'shard') drawShard(g, e, flash)
+  else if (e.kind === 'tank') {
+    g.fillStyle(flash ? 0xffffff : 0x8a97a8, 1)
+    g.fillCircle(e.x, e.y, e.r)
+    g.fillStyle(flash ? 0xfff6d2 : 0xffb15a, 1)
+    g.fillCircle(e.x, e.y, e.r * 0.35)
+  } else if (e.kind === 'plate') drawPlate(g, e, flash, unit)
+  else if (e.kind === 'jammer') drawJammer(g, e, time, flash, unit)
   else drawDrone(g, e, flash, unit)
+  if (e.kind === 'scout') {
+    g.lineStyle(Math.max(1, unit), 0x9af6ff, 0.9)
+    g.strokeCircle(e.x, e.y, e.r * 1.15)
+  }
+  if (e.kind === 'kamikaze') {
+    g.fillStyle(0xff4d63, 1)
+    g.fillCircle(e.x, e.y, Math.max(2, e.r * 0.35))
+  }
+  if (e.shield > 0) {
+    g.lineStyle(Math.max(1.5, unit * 1.6), 0x9af6ff, 0.85)
+    g.strokeCircle(e.x, e.y, e.r + unit * 4)
+  }
   if (e.stun > 0) {
     g.lineStyle(Math.max(2, unit * 1.7), 0x9af6ff, 0.95)
     g.strokeCircle(e.x, e.y, e.r + unit * 4)
@@ -414,6 +499,28 @@ function drawEnemy(g: Phaser.GameObjects.Graphics, e: Enemy, time: number, unit:
     g.fillStyle(0xffb15a, 1)
     g.fillRect(e.x - w / 2, y, w * Math.max(0, e.hp / e.maxHp), h)
   }
+}
+
+function drawPlate(g: Phaser.GameObjects.Graphics, e: Enemy, flash: boolean, unit: number): void {
+  g.fillStyle(flash ? 0xffffff : 0x6e5a3a, 1)
+  hex(g, e.x, e.y, e.r)
+  g.lineStyle(Math.max(2, unit * 1.8), flash ? 0xfff6d2 : 0xffb15a, 1)
+  g.strokeCircle(e.x, e.y, e.r * 0.72)
+  g.fillStyle(flash ? 0xffffff : 0xd7c4a2, 1)
+  hex(g, e.x, e.y, e.r * 0.38)
+}
+
+function drawJammer(g: Phaser.GameObjects.Graphics, e: Enemy, time: number, flash: boolean, unit: number): void {
+  const zig = Math.sin(time * 14 + e.phase) * e.r * 0.35
+  g.lineStyle(Math.max(2, unit * 2), flash ? 0xffffff : 0x9af6ff, 1)
+  g.beginPath()
+  g.moveTo(e.x - e.r, e.y + zig)
+  g.lineTo(e.x, e.y - e.r * 0.8)
+  g.lineTo(e.x + e.r, e.y - zig)
+  g.strokePath()
+  g.fillStyle(flash ? 0xffffff : 0xff4d63, 1)
+  const eye = Math.max(2, unit * 2)
+  g.fillRect(e.x - eye / 2, e.y - eye / 2, eye, eye)
 }
 
 function drawDrone(g: Phaser.GameObjects.Graphics, e: Enemy, flash: boolean, unit: number): void {
@@ -510,15 +617,166 @@ function drawShard(g: Phaser.GameObjects.Graphics, e: Enemy, flash: boolean): vo
   diamond(g, e.x, e.y, e.r, e.angle)
 }
 
+const TURRET_PAINT = {
+  navy: { base: 0x1a2233, mid: 0x31425c, top: 0x5c6e88, barrel: 0x9aa6b8, trim: 0x6a7c94 },
+  amber: { base: 0x2a1c10, mid: 0x6a4220, top: 0xffb15a, barrel: 0xffd7a1, trim: 0xc47a32 },
+  cyan: { base: 0x102028, mid: 0x1c4a56, top: 0x9af6ff, barrel: 0xd8fbff, trim: 0x3a8a96 },
+  violet: { base: 0x1a1428, mid: 0x3a2a58, top: 0xc9a6ff, barrel: 0xe4d8ff, trim: 0x6a4cff },
+} as const
+
+const GLYPH: Record<string, ReadonlyArray<readonly [number, number, number, number]>> = {
+  M: [[0.15, 0.8, 0.15, 0.2], [0.15, 0.2, 0.5, 0.65], [0.5, 0.65, 0.85, 0.2], [0.85, 0.2, 0.85, 0.8]],
+  S: [[0.8, 0.28, 0.25, 0.28], [0.25, 0.28, 0.25, 0.5], [0.25, 0.5, 0.75, 0.5], [0.75, 0.5, 0.75, 0.75], [0.75, 0.75, 0.2, 0.75]],
+  L: [[0.25, 0.18, 0.25, 0.82], [0.25, 0.82, 0.78, 0.82]],
+  F: [[0.28, 0.18, 0.28, 0.82], [0.28, 0.18, 0.78, 0.18], [0.28, 0.48, 0.68, 0.48]],
+  H: [[0.22, 0.18, 0.22, 0.82], [0.78, 0.18, 0.78, 0.82], [0.22, 0.5, 0.78, 0.5]],
+}
+
+function drawGlyph(g: Phaser.GameObjects.Graphics, letter: string, x: number, y: number, size: number, color: number): void {
+  const lines = GLYPH[letter]
+  if (!lines) return
+  g.lineStyle(Math.max(1.5, size * 0.12), color, 1)
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    g.beginPath()
+    g.moveTo(x + line[0] * size, y + line[1] * size)
+    g.lineTo(x + line[2] * size, y + line[3] * size)
+    g.strokePath()
+  }
+}
+
+function drawDrop(
+  g: Phaser.GameObjects.Graphics,
+  drop: { x: number; y: number; kind: string; letter?: string },
+  unit: number,
+): void {
+  const capsule = drop.kind === 'capsule' && drop.letter
+  const color = capsule
+    ? drop.letter === 'M'
+      ? 0xffb15a
+      : drop.letter === 'S'
+        ? 0x9af6ff
+        : drop.letter === 'L'
+          ? 0xff4d6a
+          : drop.letter === 'F'
+            ? 0xff6a2a
+            : 0xc9a6ff
+    : drop.kind === 'rapid'
+      ? 0xffb15a
+      : drop.kind === 'spread'
+        ? 0x9af6ff
+        : drop.kind === 'shield'
+          ? 0xb6f27a
+          : 0xc9a6ff
+  const r = Math.max(8, unit * (capsule ? 11 : 7))
+  g.fillStyle(0x10182a, 0.92)
+  g.fillCircle(drop.x, drop.y, r)
+  g.lineStyle(Math.max(2, unit * 1.6), color, 1)
+  g.strokeCircle(drop.x, drop.y, r)
+  if (capsule && drop.letter) {
+    drawGlyph(g, drop.letter, drop.x - r * 0.62, drop.y - r * 0.62, r * 1.25, 0xf7fbff)
+    return
+  }
+  if (drop.kind === 'shield') {
+    g.strokeCircle(drop.x, drop.y, r * 0.45)
+    return
+  }
+  if (drop.kind === 'spread') {
+    g.lineStyle(Math.max(1.4, unit), color, 1)
+    g.beginPath()
+    g.moveTo(drop.x, drop.y + r * 0.2)
+    g.lineTo(drop.x - r * 0.45, drop.y - r * 0.35)
+    g.moveTo(drop.x, drop.y + r * 0.2)
+    g.lineTo(drop.x, drop.y - r * 0.45)
+    g.moveTo(drop.x, drop.y + r * 0.2)
+    g.lineTo(drop.x + r * 0.45, drop.y - r * 0.35)
+    g.strokePath()
+    return
+  }
+  if (drop.kind === 'slow') {
+    g.lineStyle(Math.max(1.4, unit), color, 1)
+    g.strokeCircle(drop.x, drop.y, r * 0.38)
+    return
+  }
+  g.lineStyle(Math.max(1.6, unit), color, 1)
+  g.beginPath()
+  g.moveTo(drop.x, drop.y - r * 0.4)
+  g.lineTo(drop.x, drop.y + r * 0.35)
+  g.moveTo(drop.x - r * 0.28, drop.y - r * 0.05)
+  g.lineTo(drop.x, drop.y - r * 0.4)
+  g.lineTo(drop.x + r * 0.28, drop.y - r * 0.05)
+  g.strokePath()
+}
+
+function drawMuzzle(
+  g: Phaser.GameObjects.Graphics,
+  tipX: number,
+  tipY: number,
+  c: number,
+  s: number,
+  u: number,
+  m: number,
+  kind: string,
+): void {
+  const reach = u * (8 + m * 22)
+  if (kind === 'beam') {
+    g.lineStyle(Math.max(2, u * 3), 0xff4d6a, 0.85)
+    g.beginPath()
+    g.moveTo(tipX, tipY)
+    g.lineTo(tipX + c * reach, tipY + s * reach)
+    g.strokePath()
+    return
+  }
+  if (kind === 'flame') {
+    g.fillStyle(0xff6a2a, 0.9)
+    const blob = u * (8 + m * 16)
+    g.fillCircle(tipX + c * u * 8, tipY + s * u * 8, blob * 0.45)
+    g.fillStyle(0xffe1a3, 0.85)
+    g.fillCircle(tipX + c * u * 4, tipY + s * u * 4, blob * 0.22)
+    return
+  }
+  if (kind === 'fan') {
+    g.lineStyle(Math.max(1.5, u * 1.6), 0x9af6ff, 0.9)
+    for (let i = -1; i <= 1; i++) {
+      const a = Math.atan2(s, c) + i * 0.22
+      g.beginPath()
+      g.moveTo(tipX, tipY)
+      g.lineTo(tipX + Math.cos(a) * reach, tipY + Math.sin(a) * reach)
+      g.strokePath()
+    }
+    return
+  }
+  if (kind === 'mg') {
+    g.lineStyle(Math.max(1, u), 0xb8fbff, 0.95)
+    g.beginPath()
+    g.moveTo(tipX, tipY)
+    g.lineTo(tipX + c * reach * 1.3, tipY + s * reach * 1.3)
+    g.strokePath()
+    return
+  }
+  if (kind === 'homing') {
+    g.fillStyle(0xffb15a, 0.95)
+    diamond(g, tipX + c * u * 8, tipY + s * u * 8, u * (4 + m * 8), Math.atan2(s, c))
+    return
+  }
+  g.fillStyle(0xfff6d2, 0.95)
+  const flash = u * (6 + m * 18)
+  g.fillRect(tipX + c * u * 4 - flash / 2, tipY + s * u * 4 - flash / 2, flash, flash)
+  g.fillStyle(0xffb15a, 0.7)
+  const flash2 = flash * 0.45
+  g.fillRect(tipX + c * u * 12 - flash2 / 2, tipY + s * u * 12 - flash2 / 2, flash2, flash2)
+}
+
 function drawTurret(g: Phaser.GameObjects.Graphics, f: ActionFrame): void {
   const x = f.turretX
   const y = f.turretY
   const u = f.unit
-  g.fillStyle(0x1a2233, 1)
+  const paint = TURRET_PAINT[f.turretSkin] ?? TURRET_PAINT.navy
+  g.fillStyle(paint.base, 1)
   g.fillRect(x - u * 36, y - u * 2, u * 72, u * 16)
-  g.fillStyle(0x31425c, 1)
+  g.fillStyle(paint.mid, 1)
   g.fillRect(x - u * 22, y - u * 14, u * 44, u * 16)
-  g.fillStyle(0x5c6e88, 1)
+  g.fillStyle(paint.top, 1)
   g.fillRect(x - u * 10, y - u * 20, u * 20, u * 10)
 
   const pivotX = x
@@ -526,9 +784,9 @@ function drawTurret(g: Phaser.GameObjects.Graphics, f: ActionFrame): void {
   const c = Math.cos(f.aim)
   const s = Math.sin(f.aim)
   const len = f.barrel
-  g.fillStyle(0x9aa6b8, 1)
+  g.fillStyle(paint.barrel, 1)
   quad(g, pivotX + c * len * 0.48, pivotY + s * len * 0.48, len, Math.max(5, u * 7), f.aim)
-  g.fillStyle(0x6a7c94, 1)
+  g.fillStyle(paint.trim, 1)
   quad(g, pivotX + c * len * 0.48, pivotY + s * len * 0.48, len * 0.92, Math.max(2, u * 2.4), f.aim)
 
   const tipX = pivotX + c * len
@@ -553,15 +811,7 @@ function drawTurret(g: Phaser.GameObjects.Graphics, f: ActionFrame): void {
     g.strokePath()
   }
 
-  if (f.muzzle > 0) {
-    const m = f.muzzle
-    g.fillStyle(0xfff6d2, 0.95)
-    const flash = u * (6 + m * 18)
-    g.fillRect(tipX + c * u * 4 - flash / 2, tipY + s * u * 4 - flash / 2, flash, flash)
-    g.fillStyle(0xffb15a, 0.7)
-    const flash2 = flash * 0.45
-    g.fillRect(tipX + c * u * 12 - flash2 / 2, tipY + s * u * 12 - flash2 / 2, flash2, flash2)
-  }
+  if (f.muzzle > 0) drawMuzzle(g, tipX, tipY, c, s, u, f.muzzle, f.muzzleKind)
 
   const sweep = f.time * 1.4
   g.lineStyle(Math.max(1, u), 0x9af6ff, 0.4)

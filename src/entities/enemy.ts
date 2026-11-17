@@ -50,6 +50,9 @@ export function makeEnemy(): Enemy {
     seed: 0,
     stun: 0,
     empMark: 0,
+    shield: 0,
+    maxShield: 0,
+    passMark: 0,
   }
 }
 
@@ -92,6 +95,8 @@ export function armDrone(e: Enemy, o: ArmBase & { entryX: number }): void {
   e.speedMul = o.speedMul
   e.hp = hp
   e.maxHp = hp
+  e.shield = 0
+  e.maxShield = 0
   e.score = spec.score
   e.city = spec.city
   e.x = o.entryX
@@ -124,6 +129,8 @@ export function armMissile(
   e.speedMul = o.speedMul
   e.hp = hp
   e.maxHp = hp
+  e.shield = 0
+  e.maxShield = 0
   e.score = spec.score
   e.city = spec.city
   e.mode = o.arc ? 'arc' : 'line'
@@ -254,6 +261,118 @@ export function armArmour(e: Enemy, o: ArmBase & { arc: boolean; arcAmp: number 
     const dist = Math.hypot(o.targetX - o.x, o.targetY - o.y) || 1
     e.duration = Math.max(3.2, dist / Math.max(1, e.speed))
   }
+}
+
+export function armScout(e: Enemy, o: ArmBase & { entryX: number }): void {
+  armDrone(e, o)
+  e.kind = 'scout'
+  e.baseR = 12
+  e.baseSpeed = 118
+  e.baseAmp = 14
+  e.hp = 1
+  e.maxHp = 1
+  e.score = 80
+  e.city = 4
+  retune(e, o.unit)
+}
+
+export function armTank(e: Enemy, o: ArmBase & { entryX: number }): void {
+  armDrone(e, o)
+  e.kind = 'tank'
+  e.baseR = 20
+  e.baseSpeed = 40
+  e.baseAmp = 10
+  e.hp = 3
+  e.maxHp = 3
+  e.score = 180
+  e.city = 10
+  retune(e, o.unit)
+}
+
+export function armSplitter(e: Enemy, o: ArmBase & { entryX: number }): void {
+  armDrone(e, o)
+  e.kind = 'splitter'
+  e.baseR = 22
+  e.baseSpeed = 48
+  e.hp = 4
+  e.maxHp = 4
+  e.score = 200
+  e.city = 12
+  retune(e, o.unit)
+}
+
+export function armKamikaze(e: Enemy, o: ArmBase & { arc: boolean; arcAmp: number }): void {
+  armMissile(e, o)
+  e.kind = 'kamikaze'
+  e.baseR = 11
+  e.baseSpeed = 168
+  e.hp = 1
+  e.maxHp = 1
+  e.score = 140
+  e.city = 14
+  retune(e, o.unit)
+}
+
+export function armJammer(e: Enemy, o: ArmBase & { entryX: number }): void {
+  armDrone(e, o)
+  e.kind = 'jammer'
+  e.baseR = 15
+  e.baseSpeed = 84
+  e.baseAmp = 52
+  e.freq = 3.6
+  e.score = 130
+  e.city = 7
+  retune(e, o.unit)
+}
+
+export function armPlate(e: Enemy, o: ArmBase & { entryX: number }): void {
+  armDrone(e, o)
+  e.kind = 'plate'
+  e.baseR = 20
+  e.baseSpeed = 36
+  e.baseAmp = 8
+  e.freq = 0.8
+  e.score = 190
+  e.city = 11
+  retune(e, o.unit)
+}
+
+export function armShield(e: Enemy, o: ArmBase & { entryX: number }, shield: number): void {
+  armDrone(e, o)
+  e.kind = 'shield'
+  e.baseR = 18
+  e.baseSpeed = 52
+  e.hp = 2
+  e.maxHp = 2
+  e.shield = shield
+  e.maxShield = shield
+  e.score = 160
+  e.city = 8
+  retune(e, o.unit)
+}
+
+/** Jammers sidestep incoming shells. Homing rounds are left to track. */
+export function sidestep(
+  e: Enemy,
+  threats: readonly { active: boolean; x: number; y: number; vx: number; vy: number; homing: boolean }[],
+  dt: number,
+): void {
+  if (!e.active || e.kind !== 'jammer' || e.stun > 0) return
+  let push = 0
+  const reach = 120
+  for (let i = 0; i < threats.length; i++) {
+    const b = threats[i]
+    if (!b.active || b.homing) continue
+    const dx = e.x - b.x
+    const dy = e.y - b.y
+    const d2 = dx * dx + dy * dy
+    if (d2 > reach * reach || d2 < 4) continue
+    if (b.vx * dx + b.vy * dy <= 0) continue
+    const side = dx * b.vy - dy * b.vx
+    push += side >= 0 ? 1 : -1
+  }
+  if (push === 0) return
+  e.centerX += Math.sign(push) * 240 * dt
 }
 
 export function stepEnemy(e: Enemy, dt: number, world: StepWorld): boolean {

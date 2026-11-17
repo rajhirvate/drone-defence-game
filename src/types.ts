@@ -1,11 +1,24 @@
-import type { MissileSkinId, UpgradeId, WeaponId } from './config'
+import type { MissileSkinId, TurretSkinId, UpgradeId, WeaponId } from './config'
 import type { Difficulty } from './pace'
 
-export type Phase = 'menu' | 'map' | 'armoury' | 'playing' | 'upgrade' | 'clear' | 'gameover'
+export type Phase = 'menu' | 'map' | 'armoury' | 'skins' | 'badges' | 'stats' | 'playing' | 'upgrade' | 'clear' | 'gameover'
 
 export type GameMode = 'endless' | 'campaign' | 'daily'
 
-export type EnemyKind = 'drone' | 'missile' | 'swarm' | 'shard' | 'carrier' | 'armour'
+export type EnemyKind =
+  | 'drone'
+  | 'scout'
+  | 'tank'
+  | 'splitter'
+  | 'kamikaze'
+  | 'shield'
+  | 'missile'
+  | 'swarm'
+  | 'shard'
+  | 'carrier'
+  | 'armour'
+  | 'jammer'
+  | 'plate'
 
 export type MoveMode = 'weave' | 'line' | 'arc' | 'shard' | 'flyby'
 
@@ -47,6 +60,9 @@ export interface Enemy {
   seed: number
   stun: number
   empMark: number
+  shield: number
+  maxShield: number
+  passMark: number
 }
 
 export interface Bullet {
@@ -65,6 +81,9 @@ export interface Bullet {
   homing: boolean
   turn: number
   skin: MissileSkinId
+  pierce: boolean
+  id: number
+  heat: boolean
 }
 
 export interface Particle {
@@ -159,11 +178,20 @@ export interface Snapshot {
   paused: boolean
   missileSkin: MissileSkinId
   ownedSkinKey: string
+  turretSkin: TurretSkinId
+  ownedTurretKey: string
+  skinToast: string
+  gun: string
+  drive: number
+  driveReady: boolean
+  driveLeft: number
+  bossName: string
 }
 
 export type Command =
   | { type: 'start' }
   | { type: 'restart' }
+  | { type: 'next-level' }
   | { type: 'upgrade'; id: UpgradeId }
   | { type: 'toggle-mute' }
   | { type: 'toggle-autofire' }
@@ -184,8 +212,16 @@ export type Command =
   | { type: 'fire-emp' }
   | { type: 'tap-fire' }
   | { type: 'buy-skin'; id: MissileSkinId }
+  | { type: 'buy-turret'; id: TurretSkinId }
+  | { type: 'open-skins' }
+  | { type: 'close-skins' }
+  | { type: 'open-badges' }
+  | { type: 'open-stats' }
+  | { type: 'close-meta' }
+  | { type: 'toggle-music' }
   | { type: 'mark-emp-hint' }
   | { type: 'set-difficulty'; id: Difficulty }
+  | { type: 'overdrive' }
 
 export function blankSnapshot(): Snapshot {
   return {
@@ -239,5 +275,13 @@ export function blankSnapshot(): Snapshot {
     paused: false,
     missileSkin: 'standard',
     ownedSkinKey: '',
+    turretSkin: 'navy',
+    ownedTurretKey: '',
+    skinToast: '',
+    gun: 'Cannon',
+    drive: 0,
+    driveReady: false,
+    driveLeft: 0,
+    bossName: '',
   }
 }

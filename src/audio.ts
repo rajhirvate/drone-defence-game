@@ -3,11 +3,13 @@
  * No samples, no third-party audio. Original to this project.
  */
 
-type Kind = 'shot' | 'boom' | 'bigboom' | 'city' | 'ui' | 'wave' | 'upgrade' | 'clear' | 'over' | 'warn' | 'laser' | 'emp' | 'homing'
+type Kind = 'shot' | 'boom' | 'bigboom' | 'city' | 'ui' | 'wave' | 'upgrade' | 'clear' | 'over' | 'warn' | 'laser' | 'emp' | 'homing' | 'mg' | 'fan' | 'beam' | 'flame'
 
 export class AudioBus {
   private ctx: AudioContext | null = null
   private master: GainNode | null = null
+  private musicGain: GainNode | null = null
+  private musicOn = true
   private noise: AudioBuffer | null = null
   private muted = false
   private dead = false
@@ -17,6 +19,11 @@ export class AudioBus {
   setMuted(muted: boolean): void {
     this.muted = muted
     if (this.master) this.master.gain.value = muted ? 0 : 0.85
+  }
+
+  setMusic(on: boolean): void {
+    this.musicOn = on
+    if (this.musicGain) this.musicGain.gain.value = on ? 0.05 : 0
   }
 
   get isMuted(): boolean {
@@ -93,6 +100,24 @@ export class AudioBus {
         this.tone('triangle', 311, 233, 0.22, 0.06)
         this.tone('sine', 196, 130, 0.4, 0.05, 0.12)
         break
+      case 'mg':
+        if (!this.allow('mg', 32)) return
+        this.tone('square', 520, 180, 0.04, 0.03)
+        break
+      case 'fan':
+        if (!this.allow('fan', 70)) return
+        this.tone('triangle', 340, 220, 0.06, 0.04)
+        this.noiseBurst(0.04, 900, 0.04, 'bandpass')
+        break
+      case 'beam':
+        if (!this.allow('beam', 80)) return
+        this.tone('sawtooth', 1400, 420, 0.09, 0.025)
+        break
+      case 'flame':
+        if (!this.allow('flame', 90)) return
+        this.noiseBurst(0.1, 280, 0.08, 'lowpass')
+        this.tone('triangle', 160, 70, 0.1, 0.04)
+        break
       case 'warn':
         if (!this.allow('warn', 90)) return
         this.tone('square', 720, 720, 0.06, 0.03)
@@ -142,17 +167,20 @@ export class AudioBus {
     comp.release.value = 0.12
     this.master = this.ctx.createGain()
     this.master.gain.value = this.muted ? 0 : 0.85
+    this.musicGain = this.ctx.createGain()
+    this.musicGain.gain.value = this.musicOn ? 0.05 : 0
     this.master.connect(comp)
+    this.musicGain.connect(comp)
     comp.connect(this.ctx.destination)
     return this.ctx
   }
 
   private startAmbient(): void {
-    if (this.ambientStarted || !this.ctx || !this.master) return
+    if (this.ambientStarted || !this.ctx || !this.musicGain) return
     this.ambientStarted = true
     const bed = this.ctx.createGain()
-    bed.gain.value = 0.02
-    bed.connect(this.master)
+    bed.gain.value = 1
+    bed.connect(this.musicGain)
     const a = this.ctx.createOscillator()
     const b = this.ctx.createOscillator()
     a.type = 'sine'

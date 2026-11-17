@@ -4,7 +4,7 @@ export const GAME_TITLE = 'Drone Defence'
 export const GAME_DESCRIPTION =
   'Arcade defence game. Aim a turret and shoot down fictional drones and missiles before they reach the city skyline.'
 
-export type UpgradeId = 'rate' | 'spread' | 'damage'
+export type UpgradeId = 'rate' | 'spread' | 'damage' | 'emp' | 'vital' | 'shield' | 'duration' | 'starter'
 
 export interface UpgradeDef {
   id: UpgradeId
@@ -28,6 +28,31 @@ export const UPGRADES: readonly UpgradeDef[] = [
     name: 'Heavy Rounds',
     blurb: 'Each hit tears off more hull.',
   },
+  {
+    id: 'emp',
+    name: 'EMP Cycle',
+    blurb: 'The pulse cools down faster.',
+  },
+  {
+    id: 'vital',
+    name: 'City Plating',
+    blurb: 'The skyline holds more damage.',
+  },
+  {
+    id: 'shield',
+    name: 'Shield HP',
+    blurb: 'Start a level with extra shield hits.',
+  },
+  {
+    id: 'duration',
+    name: 'Power-up Time',
+    blurb: 'Pickups last longer.',
+  },
+  {
+    id: 'starter',
+    name: 'Open at Lv2',
+    blurb: 'The first weapon capsule of a life starts at level 2.',
+  },
 ]
 
 export const BALANCE = {
@@ -39,10 +64,10 @@ export const BALANCE = {
   bulletLife: 1.25,
   bulletRadius: 4.5,
   tracer: 56,
-  maxActive: 12,
+  maxActive: 18,
   maxParticles: 80,
   maxBullets: 64,
-  maxEnemies: 32,
+  maxEnemies: 48,
   fireIntervalBase: 0.13,
   fireIntervalFactor: 0.86,
   fireIntervalMin: 0.045,
@@ -85,17 +110,34 @@ export function shellDamage(level: number): number {
 
 export type WeaponId = 'cannon' | 'laser' | 'missile' | 'emp'
 
-export type MissileSkinId = 'standard' | 'flare' | 'needle' | 'comet'
-
 export const MISSILE_SKINS = [
   { id: 'standard', name: 'Standard', cost: 0, blurb: 'Cyan dart and a clean trail.' },
   { id: 'flare', name: 'Flare', cost: 45, blurb: 'Wide amber body and a fire trail.' },
   { id: 'needle', name: 'Needle', cost: 80, blurb: 'Slim bolt with a long white streak.' },
-  { id: 'comet', name: 'Comet', cost: 120, blurb: 'Violet head and a ring burst.' },
+  { id: 'halo', name: 'Halo', cost: 90, blurb: 'Cyan core inside an amber ring.' },
+  { id: 'viper', name: 'Viper', cost: 110, blurb: 'A green-gold chevron and twin trails.' },
+  { id: 'comet', name: 'Comet', cost: 140, blurb: 'Violet head and a ring burst.' },
+  { id: 'lantern', name: 'Lantern', cost: 170, blurb: 'A round amber lamp with a warm wake.' },
+  { id: 'prism', name: 'Prism', cost: 210, blurb: 'White crystal with cyan and amber facets.' },
 ] as const
 
+export type MissileSkinId = (typeof MISSILE_SKINS)[number]['id']
+
+export const TURRET_SKINS = [
+  { id: 'navy', name: 'Navy', cost: 0, blurb: 'The battery’s own paint.' },
+  { id: 'amber', name: 'Amber', cost: 40, blurb: 'Warm barrel and a brass housing.' },
+  { id: 'cyan', name: 'Cyan', cost: 70, blurb: 'Pale barrel and a signal-blue base.' },
+  { id: 'violet', name: 'Violet', cost: 110, blurb: 'A dusk housing and a lilac barrel.' },
+] as const
+
+export type TurretSkinId = (typeof TURRET_SKINS)[number]['id']
+
 export function isMissileSkin(id: string): id is MissileSkinId {
-  return id === 'standard' || id === 'flare' || id === 'needle' || id === 'comet'
+  return MISSILE_SKINS.some((skin) => skin.id === id)
+}
+
+export function isTurretSkin(id: string): id is TurretSkinId {
+  return TURRET_SKINS.some((skin) => skin.id === id)
 }
 
 export const WEAPONS = {
@@ -122,13 +164,28 @@ export function rankCost(rank: number): number {
   return SHOP.rankBase * (rank + 1)
 }
 
+export function empCooldown(rank: number): number {
+  return WEAPONS.emp.cooldown * Math.pow(0.88, Math.max(0, rank))
+}
+
+export function cityMaxFor(rank: number): number {
+  return BALANCE.cityMax + Math.max(0, rank) * 16
+}
+
 export const COINS = {
   drone: 4,
+  scout: 3,
+  tank: 7,
+  splitter: 8,
+  kamikaze: 5,
+  shield: 7,
   missile: 6,
   swarm: 8,
   shard: 2,
   carrier: 20,
   armour: 16,
+  jammer: 5,
+  plate: 8,
 } as const
 
 export const STAR_RULE = { three: 0.7, two: 0.4 }
@@ -153,10 +210,10 @@ export const FEEL = {
 } as const
 
 export const TUTORIAL = [
-  'Move the pointer to aim the barrel.',
+  'Level 1: drag to aim. The first wave is already coming.',
   'Hold to fire, or leave auto-fire on and steer.',
-  'Drop a drone before it touches a roof.',
-  'The city bar is the skyline. Do not let it empty.',
+  'Pause if you need sound, music, or haptics.',
+  'Letters M S L F H are guns. Tap a capsule. The same letter levels it up.',
 ] as const
 
 export function hpFor(kind: 'drone' | 'missile' | 'swarm' | 'shard', wave: number): number {
